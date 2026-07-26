@@ -5,11 +5,17 @@
   const form = document.getElementById("job-form");
   if (!form) return;
 
-  // Local engine default. Override with ?api=https://host
   const params = new URLSearchParams(location.search);
-  const API_BASE = (params.get("api") || "http://127.0.0.1:8788").replace(/\/$/, "");
+  const cfg = window.NOSPEAKY_CONFIG || {};
+  const API_BASE = (
+    params.get("api") ||
+    cfg.apiBase ||
+    "http://127.0.0.1:8788"
+  ).replace(/\/$/, "");
+  const API_KEY = params.get("key") || cfg.apiKey || "";
 
   let engineLive = false;
+  let mediaObjectJob = null;
 
   const urlInput = document.getElementById("url");
   const fileInput = document.getElementById("file");
@@ -35,6 +41,18 @@
   let objectUrl = null;
   let srtText = "";
   let vttText = "";
+
+  function apiHeaders(extra) {
+    const h = Object.assign({}, extra || {});
+    if (API_KEY) h["X-NoSpeaky-Key"] = API_KEY;
+    return h;
+  }
+
+  async function apiFetch(path, options) {
+    const opts = options || {};
+    opts.headers = apiHeaders(opts.headers || {});
+    return fetch(`${API_BASE}${path}`, opts);
+  }
 
   function hasInput() {
     return Boolean(urlInput.value.trim()) || Boolean(fileInput.files && fileInput.files[0]);
@@ -64,6 +82,7 @@
       URL.revokeObjectURL(objectUrl);
       objectUrl = null;
     }
+    mediaObjectJob = null;
   }
 
   function loadLocalFileIntoPlayer(file) {
@@ -81,6 +100,17 @@
     jobState.textContent = "File loaded";
     jobDetail.textContent = engineLive ? "Hit Start for subtitles" : "Player ready — start engine for subtitles";
     progressBar.style.width = "0%";
+  }
+
+  async function loadRemoteMedia(jobId) {
+    if (mediaObjectJob === jobId && player.src) return;
+    const res = await apiFetch(`/v1/jobs/${encodeURIComponent(jobId)}/media`);
+    if (!res.ok) throw new Error(`Media fetch failed (${res.status})`);
+    const blob = await res.blob();
+    clearObjectUrl();
+    objectUrl = URL.createObjectURL(blob);
+    mediaObjectJob = jobId;
+    player.src = objectUrl;
   }
 
   function fmtTime(sec) {
@@ -167,7 +197,7 @@
       player.appendChild(track);
       try {
         if (player.textTracks && player.textTracks[0]) {
-          player.textTracks[0].mode = "hidden"; // we draw our own overlay
+          player.textTracks[0].mode = "hidden";
         }
       } catch (_) { /* ignore */ }
     }
@@ -211,12 +241,13 @@
       const data = await res.json();
       engineLive = Boolean(data && data.ok);
       if (engineLive) {
-        setStatus(`Engine online (${API_BASE}). Paste a link or drop a file, then Start.`, "ok");
+        const auth = data.auth_required ? " · key on" : "";
+        setStatus(`Engine online${auth}. Paste a link or drop a file, then Start.`, "ok");
       }
     } catch (_) {
       engineLive = false;
       setStatus(
-        `Engine offline. Start it on this Mac, then refresh. Looking for ${API_BASE}`,
+        `Engine offline right now. If you’re Matt, the Mac tunnel/engine needs to be running.`,
         "err"
       );
     }
@@ -238,7 +269,7 @@
       setStatus(
         engineLive
           ? "File loaded in player. Hit Start to make subtitles."
-          : "File loaded. Start the engine, then hit Start.",
+          : "File loaded. Engine must be online to make subtitles.",
         engineLive ? "ok" : undefined
       );
     }
@@ -268,7 +299,7 @@
     setStatus(
       engineLive
         ? "File loaded in player. Hit Start to make subtitles."
-        : "File loaded. Start the engine, then hit Start.",
+        : "File loaded. Engine must be online to make subtitles.",
       engineLive ? "ok" : undefined
     );
   });
@@ -294,7 +325,7 @@
 
     await probeEngine();
     if (!engineLive) {
-      setStatus(`Engine not running at ${API_BASE}. Start it, then try again.`, "err");
+      setStatus("Engine not online. Can’t start a job yet.", "err");
       return;
     }
 
@@ -314,7 +345,7 @@
       body.append("source_lang", sourceLang.value);
       body.append("target_lang", targetLang.value);
 
-      const res = await fetch(`${API_BASE}/v1/jobs`, { method: "POST", body });
+      const res = await apiFetch("/v1/jobs", { method: "POST", body });
       if (!res.ok) {
         let detail = `Server error ${res.status}`;
         try {
@@ -336,7 +367,7 @@
 
   async function pollJob(id) {
     for (;;) {
-      const res = await fetch(`${API_BASE}/v1/jobs/${encodeURIComponent(id)}`);
+      const res = await apiFetch(`/v1/jobs/${encodeURIComponent(id)}`);
       if (!res.ok) throw new Error(`Status check failed (${res.status})`);
       const job = await res.json();
       const progress = Number(job.progress || 0);
@@ -344,14 +375,11 @@
       jobState.textContent = job.status || "Working";
       jobDetail.textContent = job.message || "";
 
-      if (job.media_url && !fileInput.files?.length) {
-        // URL jobs: play media served by engine
-        const mediaSrc = job.media_url.startsWith("http")
-          ? job.media_url
-          : `${API_BASE}${job.media_url}`;
-        if (player.src !== mediaSrc) {
-          clearObjectUrl();
-          player.src = mediaSrc;
+      if (job.media_url && !(fileInput.files && fileInput.files[0])) {
+        try {
+          await loadRemoteMedia(id);
+        } catch (_) {
+          // media may not be ready yet during download
         }
       }
 
@@ -374,6 +402,9 @@
         if (job.vtt) vttText = job.vtt;
         btnSrt.disabled = !srtText;
         btnVtt.disabled = !vttText;
+        if (job.media_url && !(fileInput.files && fileInput.files[0])) {
+          await loadRemoteMedia(id);
+        }
         progressBar.style.width = "100%";
         jobState.textContent = "Ready";
         const n = (job.cues && job.cues.length) || 0;
