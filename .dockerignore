@@ -1,0 +1,7 @@
+.venv
+engine/data
+engine/.api_key
+**/__pycache__
+.git
+.DS_Store
+*.log

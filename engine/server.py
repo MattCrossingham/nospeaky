@@ -32,13 +32,21 @@ JOBS = DATA / "jobs"
 DATA.mkdir(parents=True, exist_ok=True)
 JOBS.mkdir(parents=True, exist_ok=True)
 
-# Small model = faster tests on M4. Bump to medium/large later for quality.
-WHISPER_MODEL = os.environ.get("NOSPEAKY_MODEL", "mlx-community/whisper-small-mlx")
+# Small model = faster tests. Cloud default is faster-whisper small.
+WHISPER_MODEL = os.environ.get(
+    "NOSPEAKY_MODEL",
+    "Systran/faster-whisper-small",
+)
+WHISPER_BACKEND = os.environ.get("NOSPEAKY_BACKEND", "auto")  # auto|mlx|faster
+WHISPER_DEVICE = os.environ.get("NOSPEAKY_DEVICE", "cpu")
+WHISPER_COMPUTE_TYPE = os.environ.get("NOSPEAKY_COMPUTE_TYPE", "int8")
 MAX_UPLOAD_MB = int(os.environ.get("NOSPEAKY_MAX_UPLOAD_MB", "200"))
 MAX_DURATION_SEC = int(os.environ.get("NOSPEAKY_MAX_DURATION_SEC", "600"))  # 10 min public beta
 API_KEY = os.environ.get("NOSPEAKY_API_KEY", "").strip()
 # Simple in-memory rate limit: N new jobs per IP per hour
 JOB_LIMIT_PER_HOUR = int(os.environ.get("NOSPEAKY_JOB_LIMIT_PER_HOUR", "8"))
+# Optional: disable yt-dlp URL fetch on public cloud until hardened further
+ALLOW_URL_FETCH = os.environ.get("NOSPEAKY_ALLOW_URL_FETCH", "1").strip() not in {"0", "false", "no"}
 
 app = FastAPI(title="NoSpeaky Engine", version="0.1.1")
 app.add_middleware(
@@ -326,64 +334,110 @@ def _translate_lines(texts: list[str], target: str) -> list[str]:
     return out
 
 
-def _transcribe(wav: Path, source_lang: str, target_lang: str) -> tuple[list[dict[str, Any]], str | None]:
-    import mlx_whisper
+_faster_model = None
 
+
+def _pick_backend() -> str:
+    if WHISPER_BACKEND in ("mlx", "faster"):
+        return WHISPER_BACKEND
+    # auto
+    try:
+        import mlx_whisper  # noqa: F401
+
+        return "mlx"
+    except Exception:
+        return "faster"
+
+
+def _get_faster_model():
+    global _faster_model
+    if _faster_model is None:
+        from faster_whisper import WhisperModel
+
+        _faster_model = WhisperModel(
+            WHISPER_MODEL,
+            device=WHISPER_DEVICE,
+            compute_type=WHISPER_COMPUTE_TYPE,
+        )
+    return _faster_model
+
+
+def _transcribe(wav: Path, source_lang: str, target_lang: str) -> tuple[list[dict[str, Any]], str | None]:
     # Whisper task=translate always goes to English.
     # For other target languages: transcribe then machine-translate.
     want_en = target_lang == "en"
-    # If source is known English and target English, plain transcribe.
-    # If target English and source not English → whisper translate is best.
-    task = "transcribe"
     language = None if source_lang in ("", "auto", None) else source_lang
 
     if want_en and (language is None or language != "en"):
-        # Prefer native whisper translate → English
         task = "translate"
-        # language still helps if known
-    elif want_en and language == "en":
-        task = "transcribe"
     else:
         task = "transcribe"
 
+    backend = _pick_backend()
     global _whisper_ready
-    with _model_lock:
-        result = mlx_whisper.transcribe(
-            str(wav),
-            path_or_hf_repo=WHISPER_MODEL,
-            verbose=False,
-            word_timestamps=False,
-            task=task,
-            language=language,
-        )
-        _whisper_ready = True
-
-    detected = result.get("language")
-    segments = result.get("segments") or []
     cues: list[dict[str, Any]] = []
-    for seg in segments:
-        text = (seg.get("text") or "").strip()
-        if not text:
-            continue
-        cues.append(
-            {
-                "start": float(seg.get("start") or 0.0),
-                "end": float(seg.get("end") or 0.0),
-                "text": text,
-            }
-        )
+    detected: str | None = None
+
+    with _model_lock:
+        if backend == "mlx":
+            import mlx_whisper
+
+            # Mac path expects mlx repo ids by default if user still has old env
+            model_id = WHISPER_MODEL
+            if model_id.startswith("Systran/") or "faster-whisper" in model_id:
+                model_id = "mlx-community/whisper-small-mlx"
+            result = mlx_whisper.transcribe(
+                str(wav),
+                path_or_hf_repo=model_id,
+                verbose=False,
+                word_timestamps=False,
+                task=task,
+                language=language,
+            )
+            _whisper_ready = True
+            detected = result.get("language")
+            for seg in result.get("segments") or []:
+                text = (seg.get("text") or "").strip()
+                if not text:
+                    continue
+                cues.append(
+                    {
+                        "start": float(seg.get("start") or 0.0),
+                        "end": float(seg.get("end") or 0.0),
+                        "text": text,
+                    }
+                )
+        else:
+            model = _get_faster_model()
+            segments, info = model.transcribe(
+                str(wav),
+                task=task,
+                language=language,
+                vad_filter=True,
+            )
+            _whisper_ready = True
+            detected = getattr(info, "language", None)
+            for seg in segments:
+                text = (seg.text or "").strip()
+                if not text:
+                    continue
+                cues.append(
+                    {
+                        "start": float(seg.start or 0.0),
+                        "end": float(seg.end or 0.0),
+                        "text": text,
+                    }
+                )
 
     # If target is not English and not same as detected/source, translate cues.
     src = language or detected or "auto"
     if target_lang not in ("", None) and target_lang != "en":
-        # whisper didn't produce target lang (unless source already was target)
         if src != target_lang:
             texts = [c["text"] for c in cues]
             translated = _translate_lines(texts, target_lang)
             for c, t in zip(cues, translated):
                 c["text"] = t
     elif target_lang == "en" and task == "transcribe" and src not in ("en", "auto", None):
-        # Should have used translate; if not, translate now
         texts = [c["text"] for c in cues]
         translated = _translate_lines(texts, "en")
         for c, t in zip(cues, translated):
@@ -482,12 +536,15 @@ def _rate_limit(ip: str) -> None:
 def health() -> dict[str, Any]:
     return {
         "ok": True,
+        "backend": _pick_backend(),
         "model": WHISPER_MODEL,
         "whisper_ready": _whisper_ready,
         "max_upload_mb": MAX_UPLOAD_MB,
         "max_duration_sec": MAX_DURATION_SEC,
         "auth_required": bool(API_KEY),
+        "allow_url_fetch": ALLOW_URL_FETCH,
         "public_beta": True,
+        "home_network": False,
     }
 
 
@@ -508,6 +565,8 @@ async def create_job(
     if file and url:
         # Prefer file if both sent
         url = None
+    if url and not ALLOW_URL_FETCH:
+        raise HTTPException(400, "URL fetch disabled on this server. Upload a file instead.")
     if url and not _is_safe_public_url(url):
         raise HTTPException(400, "URL not allowed")
 
