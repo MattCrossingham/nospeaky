@@ -2,61 +2,218 @@
   const year = document.getElementById("y");
   if (year) year.textContent = String(new Date().getFullYear());
 
-  const form = document.getElementById("caption-form");
+  const form = document.getElementById("job-form");
   if (!form) return;
+
+  // When the real engine is online, set this true and point API_BASE at it.
+  const ENGINE_LIVE = false;
+  const API_BASE = ""; // e.g. "https://api.nospeaky.ai"
 
   const urlInput = document.getElementById("url");
   const fileInput = document.getElementById("file");
   const drop = document.getElementById("drop");
   const fileName = document.getElementById("file-name");
-  const submitBtn = document.getElementById("submit-btn");
+  const sourceLang = document.getElementById("source-lang");
+  const targetLang = document.getElementById("target-lang");
+  const startBtn = document.getElementById("start-btn");
   const status = document.getElementById("form-status");
 
-  // Flip true when api.nospeaky.ai (or same-origin /api) is live.
-  const ENGINE_LIVE = false;
-  const API_BASE = ""; // e.g. "https://api.nospeaky.ai"
+  const playerSection = document.getElementById("player-section");
+  const player = document.getElementById("player");
+  const cueOverlay = document.getElementById("cue-overlay");
+  const cueList = document.getElementById("cue-list");
+  const jobState = document.getElementById("job-state");
+  const jobDetail = document.getElementById("job-detail");
+  const progressBar = document.getElementById("progress-bar");
+  const btnSrt = document.getElementById("btn-srt");
+  const btnVtt = document.getElementById("btn-vtt");
+
+  /** @type {{ start: number, end: number, text: string }[]} */
+  let cues = [];
+  let objectUrl = null;
+  let srtText = "";
+  let vttText = "";
 
   function hasInput() {
-    const hasUrl = Boolean(urlInput.value.trim());
-    const hasFile = Boolean(fileInput.files && fileInput.files[0]);
-    return hasUrl || hasFile;
+    return Boolean(urlInput.value.trim()) || Boolean(fileInput.files && fileInput.files[0]);
   }
 
-  function refresh() {
-    submitBtn.disabled = !ENGINE_LIVE || !hasInput();
-    if (!ENGINE_LIVE) {
-      status.textContent = "Engine not connected yet — page shell is live.";
-    } else if (!hasInput()) {
-      status.textContent = "Add a file or direct media URL.";
-    } else {
-      status.textContent = "Ready.";
-    }
+  function setStatus(msg, kind) {
+    status.textContent = msg;
+    status.style.color =
+      kind === "ok" ? "var(--accent)" :
+      kind === "err" ? "var(--danger)" :
+      "var(--warn)";
   }
 
-  function setFile(file) {
+  function setFileLabel(file) {
     if (!file) {
       fileName.hidden = true;
       fileName.textContent = "";
-      refresh();
       return;
     }
-    // Show selection in UI; FileList is read-only so we keep input's files when from picker.
     fileName.hidden = false;
-    fileName.textContent = `${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`;
-    if (urlInput.value) urlInput.value = "";
-    refresh();
+    const kb = Math.max(1, Math.round(file.size / 1024));
+    fileName.textContent = `${file.name} · ${kb} KB`;
+  }
+
+  function clearObjectUrl() {
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+  }
+
+  function loadLocalFileIntoPlayer(file) {
+    clearObjectUrl();
+    objectUrl = URL.createObjectURL(file);
+    player.src = objectUrl;
+    playerSection.hidden = false;
+    cues = [];
+    srtText = "";
+    vttText = "";
+    cueList.innerHTML = "";
+    cueOverlay.textContent = "";
+    btnSrt.disabled = true;
+    btnVtt.disabled = true;
+    jobState.textContent = "File loaded";
+    jobDetail.textContent = "Player ready — subtitles need the engine";
+    progressBar.style.width = "0%";
+  }
+
+  function fmtTime(sec) {
+    const s = Math.max(0, sec || 0);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    const mm = String(m).padStart(2, "0");
+    const ss = r.toFixed(3).padStart(6, "0");
+    if (h > 0) return `${h}:${mm}:${ss}`;
+    return `${m}:${ss.padStart(6, "0")}`;
+  }
+
+  function srtTimestamp(sec) {
+    const s = Math.max(0, sec || 0);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const whole = Math.floor(s % 60);
+    const ms = Math.round((s - Math.floor(s)) * 1000);
+    return (
+      String(h).padStart(2, "0") + ":" +
+      String(m).padStart(2, "0") + ":" +
+      String(whole).padStart(2, "0") + "," +
+      String(ms).padStart(3, "0")
+    );
+  }
+
+  function vttTimestamp(sec) {
+    return srtTimestamp(sec).replace(",", ".");
+  }
+
+  function buildSrt(list) {
+    return list.map((c, i) => (
+      `${i + 1}\n${srtTimestamp(c.start)} --> ${srtTimestamp(c.end)}\n${c.text}\n`
+    )).join("\n");
+  }
+
+  function buildVtt(list) {
+    return "WEBVTT\n\n" + list.map((c) => (
+      `${vttTimestamp(c.start)} --> ${vttTimestamp(c.end)}\n${c.text}\n`
+    )).join("\n");
+  }
+
+  function renderCueList() {
+    cueList.innerHTML = "";
+    cues.forEach((c, idx) => {
+      const li = document.createElement("li");
+      li.dataset.idx = String(idx);
+      li.innerHTML = `<span class="t">${fmtTime(c.start)}</span><span>${escapeHtml(c.text)}</span>`;
+      li.addEventListener("click", () => {
+        player.currentTime = c.start;
+        player.play().catch(() => {});
+      });
+      cueList.appendChild(li);
+    });
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function applyCues(list) {
+    cues = list || [];
+    srtText = buildSrt(cues);
+    vttText = buildVtt(cues);
+    renderCueList();
+    btnSrt.disabled = cues.length === 0;
+    btnVtt.disabled = cues.length === 0;
+
+    // Attach VTT as a native track when possible
+    [...player.querySelectorAll("track")].forEach((t) => t.remove());
+    if (cues.length) {
+      const blob = new Blob([vttText], { type: "text/vtt" });
+      const trackUrl = URL.createObjectURL(blob);
+      const track = document.createElement("track");
+      track.kind = "subtitles";
+      track.label = targetLang.options[targetLang.selectedIndex].text;
+      track.srclang = targetLang.value;
+      track.src = trackUrl;
+      track.default = true;
+      player.appendChild(track);
+      player.textTracks[0].mode = "showing";
+    }
+  }
+
+  function downloadText(filename, text, mime) {
+    const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  function syncOverlay() {
+    if (!cues.length) {
+      cueOverlay.textContent = "";
+      return;
+    }
+    const t = player.currentTime || 0;
+    let active = null;
+    let activeIdx = -1;
+    for (let i = 0; i < cues.length; i++) {
+      const c = cues[i];
+      if (t >= c.start && t <= c.end) {
+        active = c;
+        activeIdx = i;
+        break;
+      }
+    }
+    cueOverlay.textContent = active ? active.text : "";
+    [...cueList.children].forEach((li, i) => {
+      li.classList.toggle("active", i === activeIdx);
+    });
   }
 
   urlInput.addEventListener("input", () => {
     if (urlInput.value.trim() && fileInput.value) {
       fileInput.value = "";
-      setFile(null);
+      setFileLabel(null);
     }
-    refresh();
   });
 
   fileInput.addEventListener("change", () => {
-    setFile(fileInput.files && fileInput.files[0]);
+    const file = fileInput.files && fileInput.files[0];
+    setFileLabel(file || null);
+    if (file) {
+      urlInput.value = "";
+      loadLocalFileIntoPlayer(file);
+      setStatus("Local file is in the player. Subtitles still need the engine.", "ok");
+    }
   });
 
   ["dragenter", "dragover"].forEach((evt) => {
@@ -74,45 +231,127 @@
   drop.addEventListener("drop", (e) => {
     const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     if (!file) return;
-    // Assign via DataTransfer so the input carries the file for later FormData.
     const dt = new DataTransfer();
     dt.items.add(file);
     fileInput.files = dt.files;
-    setFile(file);
+    setFileLabel(file);
+    urlInput.value = "";
+    loadLocalFileIntoPlayer(file);
+    setStatus("Local file is in the player. Subtitles still need the engine.", "ok");
+  });
+
+  player.addEventListener("timeupdate", syncOverlay);
+  player.addEventListener("seeked", syncOverlay);
+
+  btnSrt.addEventListener("click", () => {
+    if (!srtText) return;
+    downloadText("nospeaky.srt", srtText, "application/x-subrip");
+  });
+  btnVtt.addEventListener("click", () => {
+    if (!vttText) return;
+    downloadText("nospeaky.vtt", vttText, "text/vtt");
   });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    if (!ENGINE_LIVE) {
-      status.textContent = "Not yet — API comes next. Site shell only.";
+    if (!hasInput()) {
+      setStatus("Paste a link or drop a file first.", "err");
       return;
     }
-    if (!hasInput()) return;
 
-    submitBtn.disabled = true;
-    status.textContent = "Uploading…";
+    const file = fileInput.files && fileInput.files[0];
+    if (file && !ENGINE_LIVE) {
+      loadLocalFileIntoPlayer(file);
+      setStatus(
+        "Player works. The subtitle engine is the next build — then Start will write captions in your language.",
+        "ok"
+      );
+      return;
+    }
+
+    if (!ENGINE_LIVE) {
+      playerSection.hidden = false;
+      jobState.textContent = "Engine offline";
+      jobDetail.textContent = "Site UI is ready — speech engine comes next";
+      progressBar.style.width = "0%";
+      setStatus(
+        "Got it. UI is ready. Next we connect the engine so links get real subtitles.",
+        "err"
+      );
+      return;
+    }
+
+    startBtn.disabled = true;
+    playerSection.hidden = false;
+    jobState.textContent = "Working";
+    jobDetail.textContent = "Sending job…";
+    progressBar.style.width = "8%";
+    setStatus("Starting…", "ok");
 
     try {
       const body = new FormData();
-      const file = fileInput.files && fileInput.files[0];
       if (file) body.append("file", file);
       const url = urlInput.value.trim();
       if (url) body.append("url", url);
+      body.append("source_lang", sourceLang.value);
+      body.append("target_lang", targetLang.value);
 
-      const res = await fetch(`${API_BASE}/v1/transcribe`, {
-        method: "POST",
-        body,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      status.textContent = data.message || "Done — check downloads.";
-      if (data.vtt_url) window.open(data.vtt_url, "_blank", "noopener");
+      const res = await fetch(`${API_BASE}/v1/jobs`, { method: "POST", body });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const job = await res.json();
+      // Expected: { id, status, progress, cues?, srt_url?, vtt_url? }
+      await pollJob(job.id || job.job_id);
     } catch (err) {
-      status.textContent = `Failed: ${err.message || err}`;
+      jobState.textContent = "Failed";
+      jobDetail.textContent = err.message || String(err);
+      setStatus(`Failed: ${err.message || err}`, "err");
     } finally {
-      refresh();
+      startBtn.disabled = false;
     }
   });
 
-  refresh();
+  async function pollJob(id) {
+    for (;;) {
+      const res = await fetch(`${API_BASE}/v1/jobs/${encodeURIComponent(id)}`);
+      if (!res.ok) throw new Error(`Status check failed (${res.status})`);
+      const job = await res.json();
+      const progress = Number(job.progress || 0);
+      progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+      jobState.textContent = job.status || "Working";
+      jobDetail.textContent = job.message || "";
+
+      if (Array.isArray(job.cues) && job.cues.length) {
+        applyCues(job.cues);
+      }
+
+      const st = String(job.status || "").toLowerCase();
+      if (st === "ready" || st === "done" || st === "completed") {
+        if (job.srt) srtText = job.srt;
+        if (job.vtt) vttText = job.vtt;
+        if ((!cues.length) && job.srt) {
+          // engine returned raw srt only — keep downloadable
+          btnSrt.disabled = false;
+        }
+        if (job.vtt && !player.querySelector("track")) {
+          applyCues(cues);
+        }
+        progressBar.style.width = "100%";
+        jobState.textContent = "Ready";
+        setStatus("Subtitles ready. Play the video or download .srt.", "ok");
+        return;
+      }
+      if (st === "failed" || st === "error") {
+        throw new Error(job.error || job.message || "Job failed");
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+
+  // Default status on watch page
+  setStatus(
+    ENGINE_LIVE
+      ? "Ready — paste a link or drop a file."
+      : "Engine is not online yet. You can still load a local file into the player below.",
+    ENGINE_LIVE ? "ok" : undefined
+  );
 })();
