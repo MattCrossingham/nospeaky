@@ -1,0 +1,9 @@
+# NoSpeaky engine — Linux / cloud (CPU)
+# mlx-whisper is Mac-only; this stack uses faster-whisper on CPU.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+aiofiles>=23.2
+faster-whisper>=1.1.0
+deep-translator>=1.11
+python-dotenv>=1.0
