@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NoSpeaky — Watch any video with subtitles in your language</title>
+<meta name="description" content="Paste a video link, pick a language, watch with live subtitles. Download an SRT when you're done.">
+<meta name="theme-color" content="#0a0b0f">
+<link rel="stylesheet" href="css/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%237cffa1'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <header class="top">
+    <a class="brand" href="/">nospeaky<span class="dot">.ai</span></a>
+    <nav>
+      <a href="watch.html" class="nav-active">Watch</a>
+      <a href="/#pricing">Pricing</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+  </header>
+
+  <main class="app-main">
+    <header class="app-head">
+      <h1>Watch with subtitles</h1>
+      <p class="lede">
+        Paste a video link (or drop a file). Pick the language you want to read.
+        Play — subtitles show on screen. Download an <strong>.srt</strong> file when it’s ready.
+      </p>
+    </header>
+
+    <form id="job-form" class="panel" autocomplete="off">
+      <label class="field">
+        <span class="label">Video link</span>
+        <input id="url" name="url" type="url" inputmode="url"
+          placeholder="YouTube, or any video page / direct file link"
+          aria-describedby="url-hint">
+        <span id="url-hint" class="hint">
+          Example: a MrBeast video if you need Chinese subtitles, or a Chinese show if you need English.
+        </span>
+      </label>
+
+      <div class="or" aria-hidden="true">or</div>
+
+      <label class="drop" id="drop">
+        <input id="file" name="file" type="file" accept="video/*,audio/*" hidden>
+        <span class="drop-title">Drop a video file here</span>
+        <span class="drop-sub">MP4, MOV, WebM… good for testing on your own clips</span>
+        <span class="file-name" id="file-name" hidden></span>
+      </label>
+
+      <div class="row-2">
+        <label class="field">
+          <span class="label">Spoken language</span>
+          <select id="source-lang" name="source_lang">
+            <option value="auto" selected>Auto-detect</option>
+            <option value="en">English</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="hi">Hindi</option>
+            <option value="ar">Arabic</option>
+            <option value="id">Indonesian</option>
+            <option value="vi">Vietnamese</option>
+            <option value="th">Thai</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span class="label">Subtitle language (what you read)</span>
+          <select id="target-lang" name="target_lang">
+            <option value="en" selected>English</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="hi">Hindi</option>
+            <option value="ar">Arabic</option>
+            <option value="id">Indonesian</option>
+            <option value="vi">Vietnamese</option>
+            <option value="th">Thai</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn primary" id="start-btn">Start</button>
+        <p class="status-line" id="form-status" role="status">
+          Engine is not online yet. You can still load a local file into the player below.
+        </p>
+      </div>
+    </form>
+
+    <section class="player-section" id="player-section" hidden>
+      <div class="player-wrap">
+        <video id="player" controls playsinline></video>
+        <div class="cue-overlay" id="cue-overlay" aria-live="polite"></div>
+      </div>
+
+      <div class="player-meta">
+        <div class="progress-block">
+          <div class="progress-label">
+            <span id="job-state">Waiting</span>
+            <span id="job-detail" class="faint"></span>
+          </div>
+          <div class="bar" aria-hidden="true"><i id="progress-bar"></i></div>
+        </div>
+
+        <div class="player-actions">
+          <button type="button" class="btn ghost" id="btn-srt" disabled>Download .srt</button>
+          <button type="button" class="btn ghost" id="btn-vtt" disabled>Download .vtt</button>
+        </div>
+      </div>
+
+      <ol class="cue-list" id="cue-list" aria-label="Subtitle lines"></ol>
+    </section>
+
+    <section class="section plain">
+      <h2>How this is supposed to feel</h2>
+      <ol class="steps">
+        <li>
+          <strong>Paste a link</strong>
+          <span>YouTube or a file you drop in. Pick what language you want to read.</span>
+        </li>
+        <li>
+          <strong>We listen and write</strong>
+          <span>The engine hears the speech, writes it down, and translates if you asked for another language.</span>
+        </li>
+        <li>
+          <strong>You watch with CC</strong>
+          <span>Subtitles appear on the video while it plays. When the full run finishes, grab an .srt file.</span>
+        </li>
+      </ol>
+      <p class="fine">
+        Free users will get a daily time limit. Paid plan = more minutes, downloads, fewer waits.
+        That billing piece comes after the engine works.
+      </p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>© <span id="y"></span> NoSpeaky · <a href="https://pistudios.app">Pi Studios</a></span>
+    <a href="privacy.html">Privacy</a>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
