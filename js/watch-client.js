@@ -216,29 +216,36 @@ async function decodeToMono16k(arrayBuffer) {
 }
 
 /**
- * Extract audio from video using ffmpeg.wasm (CDN).
- * Falls back with a clear error if it can't load on this device.
+ * Extract audio from video using ffmpeg.wasm.
+ * All scripts loaded via blob: URLs so Workers are same-origin (fixes nospeaky.ai CDN worker block).
  */
 async function extractAudioWithFfmpeg(file, onProgress) {
   onProgress?.(12, "Loading audio extractor…");
-  const { FFmpeg } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/+esm");
-  const { fetchFile, toBlobURL } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.2/+esm");
+  const { FFmpeg } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm");
+  const { fetchFile, toBlobURL } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm");
 
   const ffmpeg = new FFmpeg();
+  ffmpeg.on("log", ({ message }) => {
+    // keep quiet unless debugging
+    if (message && /error/i.test(message)) console.warn("[ffmpeg]", message);
+  });
   ffmpeg.on("progress", ({ progress }) => {
     const p = 12 + Math.round(Math.min(1, progress || 0) * 18);
     onProgress?.(p, "Extracting audio…");
   });
 
-  const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
+  const coreBase = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm";
+  const ffBase = "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm";
+
   await ffmpeg.load({
-    coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
-    wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
+    coreURL: await toBlobURL(`${coreBase}/ffmpeg-core.js`, "text/javascript"),
+    wasmURL: await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, "application/wasm"),
+    // Required when page origin ≠ CDN origin (GitHub Pages + jsDelivr)
+    classWorkerURL: await toBlobURL(`${ffBase}/worker.js`, "text/javascript"),
   });
 
   const inputName = "input" + (file.name.match(/\.[a-z0-9]+$/i)?.[0] || ".mp4");
   await ffmpeg.writeFile(inputName, await fetchFile(file));
-  // 16 kHz mono wav for Whisper
   await ffmpeg.exec([
     "-i", inputName,
     "-vn",
@@ -249,7 +256,15 @@ async function extractAudioWithFfmpeg(file, onProgress) {
   ]);
   const data = await ffmpeg.readFile("out.wav");
   const wavBuffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  onProgress?.(30, "Decoding audio…");
   return decodeToMono16k(wavBuffer);
+}
+
+/** Last-resort: try decodeAudioData even on video containers (works on some browsers). */
+async function tryNativeDecode(file, onProgress) {
+  onProgress?.(15, "Trying built-in decoder…");
+  const buf = await file.arrayBuffer();
+  return decodeToMono16k(buf);
 }
 
 async function fileToAudio(file, onProgress) {
@@ -258,27 +273,34 @@ async function fileToAudio(file, onProgress) {
   const name = (file.name || "").toLowerCase();
   const isAudio =
     type.startsWith("audio/") ||
-    /\.(mp3|wav|m4a|aac|ogg|flac|webm)$/i.test(name);
+    /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name);
+
+  const errors = [];
 
   if (isAudio) {
-    onProgress?.(15, "Decoding audio…");
-    const buf = await file.arrayBuffer();
     try {
-      return await decodeToMono16k(buf);
+      onProgress?.(15, "Decoding audio…");
+      return await decodeToMono16k(await file.arrayBuffer());
     } catch (err) {
-      // some "audio/mp4" m4a still need ffmpeg
-      onProgress?.(15, "Retrying with extractor…");
-      return extractAudioWithFfmpeg(file, onProgress);
+      errors.push(`native audio: ${err?.message || err}`);
+    }
+  } else {
+    // Some browsers can decode audio from mp4 directly
+    try {
+      return await tryNativeDecode(file, onProgress);
+    } catch (err) {
+      errors.push(`native video: ${err?.message || err}`);
     }
   }
 
-  // video path
   try {
     return await extractAudioWithFfmpeg(file, onProgress);
   } catch (err) {
+    errors.push(`ffmpeg: ${err?.message || err}`);
     throw new Error(
-      "Could not pull audio from this video on your device. Try a short MP3/M4A, or another browser. " +
-        (err?.message || err)
+      "Could not pull audio from this file on your device. " +
+        "Try exporting a short MP3/M4A, or use Chrome. " +
+        `(${errors.join(" | ")})`
     );
   }
 }
