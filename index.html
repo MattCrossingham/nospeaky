@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NoSpeaky — captions when the video has none</title>
+<meta name="description" content="Paste a video or drop a file. NoSpeaky generates captions so you can read what you can't hear.">
+<meta name="theme-color" content="#0a0b0f">
+<link rel="stylesheet" href="css/site.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%237cffa1'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <header class="top">
+    <a class="brand" href="/">nospeaky<span class="dot">.ai</span></a>
+    <nav>
+      <a href="#how">How</a>
+      <a href="#status">Status</a>
+      <a href="privacy.html">Privacy</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow">Captions for videos that shipped silent</p>
+      <h1>Can't hear it.<br>Still need to get it.</h1>
+      <p class="lede">
+        Drop a video or paste a direct media link. NoSpeaky turns speech into timed captions
+        you can read, download, or burn in — for clips that never had CC.
+      </p>
+
+      <form id="caption-form" class="panel" autocomplete="off">
+        <label class="field">
+          <span class="label">Video URL</span>
+          <input id="url" name="url" type="url" inputmode="url" placeholder="https://…/video.mp4"
+            aria-describedby="url-hint">
+          <span id="url-hint" class="hint">Direct media links only for now. Full YouTube support comes later.</span>
+        </label>
+
+        <div class="or" aria-hidden="true">or</div>
+
+        <label class="drop" id="drop">
+          <input id="file" name="file" type="file" accept="video/*,audio/*" hidden>
+          <span class="drop-title">Drop a video file</span>
+          <span class="drop-sub">MP4, MOV, WebM, M4A… local only until the API is live</span>
+          <span class="file-name" id="file-name" hidden></span>
+        </label>
+
+        <div class="actions">
+          <button type="submit" class="btn primary" id="submit-btn" disabled>Generate captions</button>
+          <p class="status-line" id="form-status" role="status">Engine not connected yet — page shell is live.</p>
+        </div>
+      </form>
+    </section>
+
+    <section id="how" class="section">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li>
+          <strong>You give it media</strong>
+          <span>File upload or a direct video/audio URL you own or have rights to use.</span>
+        </li>
+        <li>
+          <strong>We pull the speech</strong>
+          <span>Audio is extracted and run through speech-to-text with timestamps.</span>
+        </li>
+        <li>
+          <strong>You get real captions</strong>
+          <span>WebVTT / SRT download plus a player with native CC — not a blurry burned screenshot.</span>
+        </li>
+      </ol>
+    </section>
+
+    <section id="status" class="section">
+      <h2>Build status</h2>
+      <ul class="status-list">
+        <li><span class="tag live">live</span> Domain + this site</li>
+        <li><span class="tag next">next</span> Transcribe API (file → VTT/SRT)</li>
+        <li><span class="tag later">later</span> Streaming “live CC” feel + browser extension</li>
+      </ul>
+      <p class="fine">
+        Built by <a href="https://pistudios.app">Pi Studios</a>.
+        No account required for the shell. When the engine ships, short free runs first — then paid minutes.
+      </p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>© <span id="y"></span> NoSpeaky</span>
+    <a href="privacy.html">Privacy</a>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
