@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -34,10 +34,13 @@ JOBS.mkdir(parents=True, exist_ok=True)
 
 # Small model = faster tests on M4. Bump to medium/large later for quality.
 WHISPER_MODEL = os.environ.get("NOSPEAKY_MODEL", "mlx-community/whisper-small-mlx")
-MAX_UPLOAD_MB = int(os.environ.get("NOSPEAKY_MAX_UPLOAD_MB", "400"))
-MAX_DURATION_SEC = int(os.environ.get("NOSPEAKY_MAX_DURATION_SEC", "1800"))  # 30 min
+MAX_UPLOAD_MB = int(os.environ.get("NOSPEAKY_MAX_UPLOAD_MB", "200"))
+MAX_DURATION_SEC = int(os.environ.get("NOSPEAKY_MAX_DURATION_SEC", "600"))  # 10 min public beta
+API_KEY = os.environ.get("NOSPEAKY_API_KEY", "").strip()
+# Simple in-memory rate limit: N new jobs per IP per hour
+JOB_LIMIT_PER_HOUR = int(os.environ.get("NOSPEAKY_JOB_LIMIT_PER_HOUR", "8"))
 
-app = FastAPI(title="NoSpeaky Engine", version="0.1.0")
+app = FastAPI(title="NoSpeaky Engine", version="0.1.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -55,6 +58,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_rate: dict[str, list[float]] = {}
 
 _lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
@@ -449,6 +454,30 @@ def _start_thread(job_id: str) -> None:
     t.start()
 
 
+def _client_ip(request: Request) -> str:
+    xf = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for")
+    if xf:
+        return xf.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_key(x_nospeaky_key: str | None = Header(default=None, alias="X-NoSpeaky-Key")) -> None:
+    if not API_KEY:
+        return  # open local dev
+    if not x_nospeaky_key or x_nospeaky_key.strip() != API_KEY:
+        raise HTTPException(401, "Invalid or missing API key")
+
+
+def _rate_limit(ip: str) -> None:
+    now = time.time()
+    window = 3600.0
+    hits = [t for t in _rate.get(ip, []) if now - t < window]
+    if len(hits) >= JOB_LIMIT_PER_HOUR:
+        raise HTTPException(429, f"Too many jobs from this IP. Limit {JOB_LIMIT_PER_HOUR}/hour while in beta.")
+    hits.append(now)
+    _rate[ip] = hits
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -457,17 +486,22 @@ def health() -> dict[str, Any]:
         "whisper_ready": _whisper_ready,
         "max_upload_mb": MAX_UPLOAD_MB,
         "max_duration_sec": MAX_DURATION_SEC,
+        "auth_required": bool(API_KEY),
+        "public_beta": True,
     }
 
 
 @app.post("/v1/jobs")
 async def create_job(
+    request: Request,
     file: UploadFile | None = File(None),
     url: str | None = Form(None),
     source_lang: str = Form("auto"),
     target_lang: str = Form("en"),
+    _: None = Depends(_check_key),
 ) -> JSONResponse:
     _ensure_tools()
+    _rate_limit(_client_ip(request))
     url = (url or "").strip() or None
     if not file and not url:
         raise HTTPException(400, "Provide a file or url")
@@ -522,7 +556,7 @@ async def create_job(
 
 
 @app.get("/v1/jobs/{job_id}")
-def get_job(job_id: str) -> dict[str, Any]:
+def get_job(job_id: str, _: None = Depends(_check_key)) -> dict[str, Any]:
     with _lock:
         job = _jobs.get(job_id)
     if not job:
@@ -537,7 +571,7 @@ def get_job(job_id: str) -> dict[str, Any]:
 
 
 @app.get("/v1/jobs/{job_id}/srt")
-def get_srt(job_id: str) -> FileResponse:
+def get_srt(job_id: str, _: None = Depends(_check_key)) -> FileResponse:
     path = _job_dir(job_id) / "captions.srt"
     if not path.exists():
         raise HTTPException(404, "srt not ready")
@@ -545,7 +579,7 @@ def get_srt(job_id: str) -> FileResponse:
 
 
 @app.get("/v1/jobs/{job_id}/vtt")
-def get_vtt(job_id: str) -> FileResponse:
+def get_vtt(job_id: str, _: None = Depends(_check_key)) -> FileResponse:
     path = _job_dir(job_id) / "captions.vtt"
     if not path.exists():
         raise HTTPException(404, "vtt not ready")
@@ -553,7 +587,7 @@ def get_vtt(job_id: str) -> FileResponse:
 
 
 @app.get("/v1/jobs/{job_id}/media")
-def get_media(job_id: str) -> FileResponse:
+def get_media(job_id: str, _: None = Depends(_check_key)) -> FileResponse:
     with _lock:
         job = _jobs.get(job_id)
     if not job:

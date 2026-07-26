@@ -1,6 +1,7 @@
 # Engine data / models cache noise
 .venv/
 engine/data/
+engine/.api_key
 __pycache__/
 *.pyc
 .DS_Store
