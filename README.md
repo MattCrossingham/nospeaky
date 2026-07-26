@@ -2,49 +2,46 @@
 
 Captions for videos that shipped without CC.
 
-## Stack (v0)
+## Stack (v0.1)
 
-- Static site on **GitHub Pages**
-- Custom domain: `nospeaky.ai`
-- Transcription engine: not wired yet (`ENGINE_LIVE = false` in `js/app.js`)
+- Static site on **GitHub Pages** → `nospeaky.ai`
+- Local engine (this Mac): FastAPI + mlx-whisper + ffmpeg (+ yt-dlp for URLs)
+- Engine binds **127.0.0.1:8788 only** — not public yet
 
-## Local
+## Run locally (test for real)
 
-Open `index.html` or any static server:
+Terminal A — engine:
 
 ```bash
 cd "~/workspace/PiStudios/Web Development/nospeaky"
-python3 -m http.server 8765
+./engine/run.sh
 ```
 
-## Deploy workflow
+Terminal B — site (must be http:// not the live https site — browsers block https→http):
 
-Same discipline as pistudios.app:
+```bash
+cd "~/workspace/PiStudios/Web Development/nospeaky"
+python3 -m http.server 8765 --bind 127.0.0.1
+```
+
+Open: http://127.0.0.1:8765/watch.html  
+Drop a file or paste a URL → pick languages → Start → wait for Ready → play / download `.srt`
+
+First run downloads the Whisper model (can take a few minutes).
+
+## Deploy workflow (site)
 
 1. `git pull`
-2. Tag backup: `git tag backup-$(date +%Y%m%d-%H%M%S) && git push origin --tags`
-3. Branch → PR → merge to `main` (no direct main push when protection is on)
+2. Tag backup before risky changes
+3. Branch → PR → merge to `main`
 4. Never force-push `main`
 
-## DNS (GitHub Pages)
+## DNS
 
-At the registrar for `nospeaky.ai`:
-
-- **A** records for apex → GitHub Pages IPs:
-  - `185.199.108.153`
-  - `185.199.109.153`
-  - `185.199.110.153`
-  - `185.199.111.153`
-- optional **AAAA**:
-  - `2606:50c0:8000::153`
-  - `2606:50c0:8001::153`
-  - `2606:50c0:8002::153`
-  - `2606:50c0:8003::153`
-- **CNAME** `www` → `mattcrossingham.github.io`
-
-Then in repo Settings → Pages → Custom domain: `nospeaky.ai` + Enforce HTTPS.
+Already pointed at GitHub Pages. HTTPS on.
 
 ## Next
 
-- `api.nospeaky.ai` backend: file upload → faster-whisper → VTT/SRT
-- Flip `ENGINE_LIVE` and `API_BASE` in `js/app.js`
+- Put engine online behind login + limits (`api.nospeaky.ai`)
+- Better models / chunked live cues while playing
+- Stripe free tier + Pro
