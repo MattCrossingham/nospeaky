@@ -1,5 +1,9 @@
-DS_Store
+# Engine data / models cache noise
+.venv/
+engine/data/
+__pycache__/
+*.pyc
 .DS_Store
-*.log
 .idea/
 .vscode/
+*.log

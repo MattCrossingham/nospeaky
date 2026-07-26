@@ -5,9 +5,11 @@
   const form = document.getElementById("job-form");
   if (!form) return;
 
-  // When the real engine is online, set this true and point API_BASE at it.
-  const ENGINE_LIVE = false;
-  const API_BASE = ""; // e.g. "https://api.nospeaky.ai"
+  // Local engine default. Override with ?api=https://host
+  const params = new URLSearchParams(location.search);
+  const API_BASE = (params.get("api") || "http://127.0.0.1:8788").replace(/\/$/, "");
+
+  let engineLive = false;
 
   const urlInput = document.getElementById("url");
   const fileInput = document.getElementById("file");
@@ -77,7 +79,7 @@
     btnSrt.disabled = true;
     btnVtt.disabled = true;
     jobState.textContent = "File loaded";
-    jobDetail.textContent = "Player ready — subtitles need the engine";
+    jobDetail.textContent = engineLive ? "Hit Start for subtitles" : "Player ready — start engine for subtitles";
     progressBar.style.width = "0%";
   }
 
@@ -122,6 +124,14 @@
     )).join("\n");
   }
 
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   function renderCueList() {
     cueList.innerHTML = "";
     cues.forEach((c, idx) => {
@@ -136,23 +146,14 @@
     });
   }
 
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
   function applyCues(list) {
     cues = list || [];
     srtText = buildSrt(cues);
     vttText = buildVtt(cues);
     renderCueList();
-    btnSrt.disabled = cues.length === 0;
-    btnVtt.disabled = cues.length === 0;
+    btnSrt.disabled = cues.length === 0 && !srtText;
+    btnVtt.disabled = cues.length === 0 && !vttText;
 
-    // Attach VTT as a native track when possible
     [...player.querySelectorAll("track")].forEach((t) => t.remove());
     if (cues.length) {
       const blob = new Blob([vttText], { type: "text/vtt" });
@@ -164,7 +165,11 @@
       track.src = trackUrl;
       track.default = true;
       player.appendChild(track);
-      player.textTracks[0].mode = "showing";
+      try {
+        if (player.textTracks && player.textTracks[0]) {
+          player.textTracks[0].mode = "hidden"; // we draw our own overlay
+        }
+      } catch (_) { /* ignore */ }
     }
   }
 
@@ -199,6 +204,24 @@
     });
   }
 
+  async function probeEngine() {
+    try {
+      const res = await fetch(`${API_BASE}/health`, { method: "GET" });
+      if (!res.ok) throw new Error("bad health");
+      const data = await res.json();
+      engineLive = Boolean(data && data.ok);
+      if (engineLive) {
+        setStatus(`Engine online (${API_BASE}). Paste a link or drop a file, then Start.`, "ok");
+      }
+    } catch (_) {
+      engineLive = false;
+      setStatus(
+        `Engine offline. Start it on this Mac, then refresh. Looking for ${API_BASE}`,
+        "err"
+      );
+    }
+  }
+
   urlInput.addEventListener("input", () => {
     if (urlInput.value.trim() && fileInput.value) {
       fileInput.value = "";
@@ -212,7 +235,12 @@
     if (file) {
       urlInput.value = "";
       loadLocalFileIntoPlayer(file);
-      setStatus("Local file is in the player. Subtitles still need the engine.", "ok");
+      setStatus(
+        engineLive
+          ? "File loaded in player. Hit Start to make subtitles."
+          : "File loaded. Start the engine, then hit Start.",
+        engineLive ? "ok" : undefined
+      );
     }
   });
 
@@ -237,7 +265,12 @@
     setFileLabel(file);
     urlInput.value = "";
     loadLocalFileIntoPlayer(file);
-    setStatus("Local file is in the player. Subtitles still need the engine.", "ok");
+    setStatus(
+      engineLive
+        ? "File loaded in player. Hit Start to make subtitles."
+        : "File loaded. Start the engine, then hit Start.",
+      engineLive ? "ok" : undefined
+    );
   });
 
   player.addEventListener("timeupdate", syncOverlay);
@@ -259,33 +292,18 @@
       return;
     }
 
+    await probeEngine();
+    if (!engineLive) {
+      setStatus(`Engine not running at ${API_BASE}. Start it, then try again.`, "err");
+      return;
+    }
+
     const file = fileInput.files && fileInput.files[0];
-    if (file && !ENGINE_LIVE) {
-      loadLocalFileIntoPlayer(file);
-      setStatus(
-        "Player works. The subtitle engine is the next build — then Start will write captions in your language.",
-        "ok"
-      );
-      return;
-    }
-
-    if (!ENGINE_LIVE) {
-      playerSection.hidden = false;
-      jobState.textContent = "Engine offline";
-      jobDetail.textContent = "Site UI is ready — speech engine comes next";
-      progressBar.style.width = "0%";
-      setStatus(
-        "Got it. UI is ready. Next we connect the engine so links get real subtitles.",
-        "err"
-      );
-      return;
-    }
-
     startBtn.disabled = true;
     playerSection.hidden = false;
     jobState.textContent = "Working";
     jobDetail.textContent = "Sending job…";
-    progressBar.style.width = "8%";
+    progressBar.style.width = "5%";
     setStatus("Starting…", "ok");
 
     try {
@@ -297,9 +315,15 @@
       body.append("target_lang", targetLang.value);
 
       const res = await fetch(`${API_BASE}/v1/jobs`, { method: "POST", body });
-      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      if (!res.ok) {
+        let detail = `Server error ${res.status}`;
+        try {
+          const err = await res.json();
+          detail = err.detail || err.error || detail;
+        } catch (_) { /* ignore */ }
+        throw new Error(detail);
+      }
       const job = await res.json();
-      // Expected: { id, status, progress, cues?, srt_url?, vtt_url? }
       await pollJob(job.id || job.job_id);
     } catch (err) {
       jobState.textContent = "Failed";
@@ -320,38 +344,53 @@
       jobState.textContent = job.status || "Working";
       jobDetail.textContent = job.message || "";
 
+      if (job.media_url && !fileInput.files?.length) {
+        // URL jobs: play media served by engine
+        const mediaSrc = job.media_url.startsWith("http")
+          ? job.media_url
+          : `${API_BASE}${job.media_url}`;
+        if (player.src !== mediaSrc) {
+          clearObjectUrl();
+          player.src = mediaSrc;
+        }
+      }
+
       if (Array.isArray(job.cues) && job.cues.length) {
         applyCues(job.cues);
+      }
+      if (job.srt) {
+        srtText = job.srt;
+        btnSrt.disabled = false;
+      }
+      if (job.vtt) {
+        vttText = job.vtt;
+        btnVtt.disabled = false;
       }
 
       const st = String(job.status || "").toLowerCase();
       if (st === "ready" || st === "done" || st === "completed") {
+        if (Array.isArray(job.cues)) applyCues(job.cues);
         if (job.srt) srtText = job.srt;
         if (job.vtt) vttText = job.vtt;
-        if ((!cues.length) && job.srt) {
-          // engine returned raw srt only — keep downloadable
-          btnSrt.disabled = false;
-        }
-        if (job.vtt && !player.querySelector("track")) {
-          applyCues(cues);
-        }
+        btnSrt.disabled = !srtText;
+        btnVtt.disabled = !vttText;
         progressBar.style.width = "100%";
         jobState.textContent = "Ready";
-        setStatus("Subtitles ready. Play the video or download .srt.", "ok");
+        const n = (job.cues && job.cues.length) || 0;
+        setStatus(
+          n
+            ? `Ready — ${n} lines. Play the video or download .srt.`
+            : "Ready, but no speech was detected.",
+          n ? "ok" : undefined
+        );
         return;
       }
       if (st === "failed" || st === "error") {
         throw new Error(job.error || job.message || "Job failed");
       }
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 1200));
     }
   }
 
-  // Default status on watch page
-  setStatus(
-    ENGINE_LIVE
-      ? "Ready — paste a link or drop a file."
-      : "Engine is not online yet. You can still load a local file into the player below.",
-    ENGINE_LIVE ? "ok" : undefined
-  );
+  probeEngine();
 })();
