@@ -7,3 +7,4 @@ aiofiles>=23.2
 faster-whisper>=1.1.0
 deep-translator>=1.11
 python-dotenv>=1.0
+yt-dlp>=2025.1.1
