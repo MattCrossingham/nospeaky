@@ -290,14 +290,18 @@ a.btn.primary:hover, a.btn.ghost:hover { text-decoration: none; }
   overflow: hidden;
   border: 1px solid var(--line);
   aspect-ratio: 16 / 9;
+  isolation: isolate;
 }
 
 #player, #embed {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   display: block;
   background: #000;
   border: 0;
+  z-index: 0;
 }
 
 .cue-overlay {
@@ -317,7 +321,21 @@ a.btn.primary:hover, a.btn.ghost:hover { text-decoration: none; }
   text-wrap: balance;
   pointer-events: none;
   min-height: 1.2em;
-  z-index: 2;
+  z-index: 20;
+}
+
+.live-sub {
+  margin: 12px 0 0;
+  min-height: 3.2em;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #000;
+  border: 1px solid rgba(124, 255, 161, 0.35);
+  color: #7cffa1;
+  font-size: clamp(1.15rem, 3vw, 1.6rem);
+  font-weight: 650;
+  text-align: center;
+  line-height: 1.35;
 }
 
 .player-meta {
