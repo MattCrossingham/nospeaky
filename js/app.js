@@ -15,6 +15,7 @@
   const API_KEY = params.get("key") || cfg.apiKey || "";
 
   let engineLive = false;
+  let proReady = false;
   let mediaObjectJob = null;
 
   const urlInput = document.getElementById("url");
@@ -24,6 +25,8 @@
   const sourceLang = document.getElementById("source-lang");
   const targetLang = document.getElementById("target-lang");
   const startBtn = document.getElementById("start-btn");
+  const proBtn = document.getElementById("pro-btn");
+  const tierInput = document.getElementById("tier");
   const status = document.getElementById("form-status");
 
   const playerSection = document.getElementById("player-section");
@@ -369,11 +372,20 @@
       if (!res.ok) throw new Error("bad health");
       const data = await res.json();
       engineLive = Boolean(data && data.ok);
+      proReady = Boolean(data && data.pro_ready);
+      if (proBtn) proBtn.disabled = !(engineLive && proReady);
       if (engineLive) {
-        setStatus("Paste a link, pick a language, then Translate.", "ok");
+        setStatus(
+          proReady
+            ? "Paste a link, pick a language, then Translate or Pro."
+            : "Paste a link, pick a language, then Translate. Pro is not connected yet.",
+          "ok"
+        );
       }
     } catch (_) {
       engineLive = false;
+      proReady = false;
+      if (proBtn) proBtn.disabled = true;
       setStatus(
         "Translator is warming up. Try again in a minute.",
         "err"
@@ -456,15 +468,22 @@
       setStatus("Engine not online. Can’t start a job yet.", "err");
       return;
     }
+    const tier = (tierInput && tierInput.value) || "free";
+    if (tier === "pro" && !proReady) {
+      setStatus("Pro is not connected yet.", "err");
+      if (tierInput) tierInput.value = "free";
+      return;
+    }
 
     const file = fileInput.files && fileInput.files[0];
     startBtn.disabled = true;
+    if (proBtn) proBtn.disabled = true;
     playerSection.hidden = false;
-    showWait(null, "Translating");
+    showWait(null, tier === "pro" ? "Pro translating" : "Translating");
     jobState.textContent = "Working";
     jobDetail.textContent = "Sending job…";
     progressBar.style.width = "5%";
-    setStatus("Translating…", "ok");
+    setStatus(tier === "pro" ? "Pro translating…" : "Translating…", "ok");
 
     try {
       const body = new FormData();
@@ -473,6 +492,7 @@
       if (url) body.append("url", url);
       body.append("source_lang", sourceLang.value);
       body.append("target_lang", targetLang.value);
+      body.append("tier", tier);
 
       const res = await apiFetch("/v1/jobs", { method: "POST", body });
       if (!res.ok) {
@@ -492,8 +512,17 @@
       setStatus(`Failed: ${err.message || err}`, "err");
     } finally {
       startBtn.disabled = false;
+      if (proBtn) proBtn.disabled = !(engineLive && proReady);
+      if (tierInput) tierInput.value = "free";
     }
   });
+
+  if (proBtn) {
+    proBtn.addEventListener("click", () => {
+      if (tierInput) tierInput.value = "pro";
+      form.requestSubmit();
+    });
+  }
 
   async function startPlayback(job, id) {
     hideWait();

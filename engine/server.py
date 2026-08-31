@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from engine.scribe import iso_lang, transcribe_file, words_to_cues
+
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -47,6 +49,10 @@ API_KEY = os.environ.get("NOSPEAKY_API_KEY", "").strip()
 JOB_LIMIT_PER_HOUR = int(os.environ.get("NOSPEAKY_JOB_LIMIT_PER_HOUR", "8"))
 # Optional: disable yt-dlp URL fetch on public cloud until hardened further
 ALLOW_URL_FETCH = os.environ.get("NOSPEAKY_ALLOW_URL_FETCH", "1").strip() not in {"0", "false", "no"}
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+ELEVENLABS_STT_MODEL = os.environ.get("ELEVENLABS_STT_MODEL", "scribe_v2").strip() or "scribe_v2"
+PRO_MAX_DURATION_SEC = int(os.environ.get("NOSPEAKY_PRO_MAX_DURATION_SEC", "3600"))
+PRO_MAX_CONCURRENT = int(os.environ.get("NOSPEAKY_PRO_MAX_CONCURRENT", "4"))
 
 app = FastAPI(title="NoSpeaky Engine", version="0.1.1")
 app.add_middleware(
@@ -75,6 +81,7 @@ _job_q: list[str] = []
 _worker_busy = False
 _model_lock = threading.Lock()
 _whisper_ready = False
+_pro_sema = threading.Semaphore(PRO_MAX_CONCURRENT)
 
 
 def _job_dir(job_id: str) -> Path:
@@ -112,6 +119,7 @@ def _public(job: dict[str, Any]) -> dict[str, Any]:
         "duration": job.get("source_duration") or job.get("duration"),
         "eta_sec": _eta_sec(job),
         "heard": job.get("heard"),
+        "tier": job.get("tier") or "free",
     }
     if job.get("media_name"):
         out["media_url"] = f"/v1/jobs/{job['id']}/media"
@@ -677,9 +685,93 @@ def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) 
     return cues, detected
 
 
+def _process_pro(job_id: str) -> None:
+    job = _jobs[job_id]
+    jdir = _job_dir(job_id)
+    source_lang = job.get("source_lang") or "auto"
+    target_lang = job.get("target_lang") or "en"
+    _set(job_id, status="working", progress=6, message="Timing the clip…")
+
+    media_path: Path | None = None
+    if job.get("source_url"):
+        src_dur = _probe_url_duration(job["source_url"])
+        cap = PRO_MAX_DURATION_SEC
+        if src_dur and src_dur > cap:
+            raise RuntimeError(f"Video too long ({int(src_dur)}s). Pro max is {cap}s for now.")
+        _set(
+            job_id,
+            progress=12,
+            message="Fetching audio…",
+            source_duration=src_dur,
+            duration=src_dur,
+            heard=0,
+        )
+        media_path = _fetch_url(job["source_url"], jdir)
+    else:
+        media_path = Path(job["media_path"])
+        if not media_path.exists():
+            raise RuntimeError("media missing")
+        src_dur = _probe_duration(media_path)
+        cap = PRO_MAX_DURATION_SEC
+        if src_dur and src_dur > cap:
+            raise RuntimeError(f"Video too long ({int(src_dur)}s). Pro max is {cap}s for now.")
+        _set(job_id, source_duration=src_dur, duration=src_dur, heard=0, progress=12)
+
+    wav = jdir / "pro.wav"
+    if media_path.suffix.lower() == ".wav":
+        wav = media_path
+    else:
+        _extract_wav(media_path, wav)
+
+    _set(job_id, progress=35, message="Translating…")
+    data = transcribe_file(
+        wav,
+        ELEVENLABS_API_KEY,
+        model_id=ELEVENLABS_STT_MODEL,
+        language_code=iso_lang(source_lang),
+    )
+    detected = data.get("language_code")
+    cues = words_to_cues(data.get("words") or [])
+    if not cues:
+        text = (data.get("text") or "").strip()
+        if text:
+            cues = [{"start": 0.0, "end": float(src_dur or 4.0), "text": text}]
+
+    src = iso_lang(source_lang) or detected or "auto"
+    if target_lang not in ("", None, "same") and target_lang != src:
+        if not (target_lang == "en" and src in ("en", "auto", None)):
+            texts = [c["text"] for c in cues]
+            translated = _translate_lines(texts, "en" if target_lang == "en" else target_lang)
+            for c, t in zip(cues, translated):
+                c["text"] = t
+
+    _set(job_id, progress=85, message="Building .srt…", detected_language=detected, cues=list(cues))
+    srt = _cues_to_srt(cues)
+    vtt = _cues_to_vtt(cues)
+    (jdir / "captions.srt").write_text(srt, encoding="utf-8")
+    (jdir / "captions.vtt").write_text(vtt, encoding="utf-8")
+    _set(
+        job_id,
+        status="ready",
+        progress=100,
+        message="Ready",
+        cues=cues,
+        srt=srt,
+        vtt=vtt,
+        detected_language=detected,
+        duration=src_dur,
+        source_duration=src_dur,
+        heard=src_dur,
+        error=None,
+    )
+
+
 def _process_job(job_id: str) -> None:
     try:
         job = _jobs[job_id]
+        if (job.get("tier") or "free") == "pro":
+            _process_pro(job_id)
+            return
         jdir = _job_dir(job_id)
         if job.get("source_url"):
             _process_url_live(
@@ -753,6 +845,19 @@ def _process_job(job_id: str) -> None:
 
 def _start_thread(job_id: str) -> None:
     global _worker_busy
+    job = _jobs.get(job_id) or {}
+    if (job.get("tier") or "free") == "pro":
+
+        def run_pro() -> None:
+            _set(job_id, status="queued", message="Waiting for a Pro slot…")
+            _pro_sema.acquire()
+            try:
+                _process_job(job_id)
+            finally:
+                _pro_sema.release()
+
+        threading.Thread(target=run_pro, daemon=True).start()
+        return
     with _lock:
         _job_q.append(job_id)
         if _worker_busy:
@@ -822,6 +927,8 @@ def health() -> dict[str, Any]:
         "allow_url_fetch": ALLOW_URL_FETCH,
         "public_beta": True,
         "home_network": False,
+        "pro_ready": bool(ELEVENLABS_API_KEY),
+        "pro_max_duration_sec": PRO_MAX_DURATION_SEC,
     }
 
 
@@ -832,11 +939,17 @@ async def create_job(
     url: str | None = Form(None),
     source_lang: str = Form("auto"),
     target_lang: str = Form("en"),
+    tier: str = Form("free"),
     _: None = Depends(_check_key),
 ) -> JSONResponse:
     _ensure_tools()
     _rate_limit(_client_ip(request))
     url = (url or "").strip() or None
+    tier_n = (tier or "free").strip().lower()
+    if tier_n not in ("free", "pro"):
+        raise HTTPException(400, "tier must be free or pro")
+    if tier_n == "pro" and not ELEVENLABS_API_KEY:
+        raise HTTPException(503, "Pro is not connected yet.")
     if not file and not url:
         raise HTTPException(400, "Provide a file or url")
     if file and url:
@@ -874,6 +987,7 @@ async def create_job(
         "source_lang": source_lang or "auto",
         "target_lang": target_lang or "en",
         "source_url": url,
+        "tier": tier_n,
         "media_path": str(media_path) if media_path else str(jdir / "media.mp4"),
         "media_name": media_name,
         "cues": [],
