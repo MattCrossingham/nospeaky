@@ -62,7 +62,9 @@
       embedClock = Date.now() / 1000;
     }
     embed.hidden = false;
+    embed.removeAttribute("hidden");
     player.hidden = true;
+    player.setAttribute("hidden", "");
     if (cueOverlay) cueOverlay.style.display = "none";
   }
 
@@ -256,14 +258,9 @@
         break;
       }
     }
-    if (!active) {
-      for (let i = cues.length - 1; i >= 0; i--) {
-        if (t >= cues[i].start) {
-          active = cues[i];
-          activeIdx = i;
-          break;
-        }
-      }
+    if (!active && cues.length) {
+      active = cues[cues.length - 1];
+      activeIdx = cues.length - 1;
     }
     cueOverlay.textContent = active ? active.text : "";
     if (liveSub) liveSub.textContent = active ? active.text : "";

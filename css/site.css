@@ -304,6 +304,15 @@ a.btn.primary:hover, a.btn.ghost:hover { text-decoration: none; }
   z-index: 0;
 }
 
+#embed:not([hidden]) {
+  display: block !important;
+  z-index: 1;
+}
+
+#player[hidden], #embed[hidden] {
+  display: none !important;
+}
+
 .cue-overlay {
   position: absolute;
   left: 50%;
