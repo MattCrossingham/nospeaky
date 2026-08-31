@@ -209,6 +209,8 @@ def _fetch_url(url: str, out_dir: Path) -> Path:
     r = _run(
         [
             "yt-dlp",
+            "--js-runtimes",
+            "deno",
             "--no-playlist",
             "-f",
             "bv*+ba/b",
@@ -227,6 +229,8 @@ def _fetch_url(url: str, out_dir: Path) -> Path:
         r = _run(
             [
                 "yt-dlp",
+                "--js-runtimes",
+                "deno",
                 "--no-playlist",
                 "-f",
                 "bestaudio/best",
