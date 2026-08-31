@@ -28,6 +28,7 @@
 
   const playerSection = document.getElementById("player-section");
   const player = document.getElementById("player");
+  const embed = document.getElementById("embed");
   const cueOverlay = document.getElementById("cue-overlay");
   const cueList = document.getElementById("cue-list");
   const jobState = document.getElementById("job-state");
@@ -374,7 +375,7 @@
       jobState.textContent = job.status || "Working";
       jobDetail.textContent = job.message || "";
 
-      if (job.media_url && !(fileInput.files && fileInput.files[0])) {
+      if (job.media_url && !(fileInput.files && fileInput.files[0]) && !job.embed_url) {
         try {
           await loadRemoteMedia(id);
         } catch (_) {
@@ -382,8 +383,15 @@
         }
       }
 
+      if (job.embed_url && embed) {
+        if (embed.src !== job.embed_url) embed.src = job.embed_url;
+        embed.hidden = false;
+        player.hidden = true;
+      }
+
       if (Array.isArray(job.cues) && job.cues.length) {
         applyCues(job.cues);
+        jobState.textContent = "Translating";
       }
       if (job.srt) {
         srtText = job.srt;
@@ -401,7 +409,7 @@
         if (job.vtt) vttText = job.vtt;
         btnSrt.disabled = !srtText;
         btnVtt.disabled = !vttText;
-        if (job.media_url && !(fileInput.files && fileInput.files[0])) {
+        if (job.media_url && !(fileInput.files && fileInput.files[0]) && !job.embed_url) {
           await loadRemoteMedia(id);
         }
         progressBar.style.width = "100%";
