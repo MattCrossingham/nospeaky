@@ -10,7 +10,7 @@
   const API_BASE = (
     params.get("api") ||
     cfg.apiBase ||
-    "http://127.0.0.1:8788"
+    "https://api.nospeaky.ai"
   ).replace(/\/$/, "");
   const API_KEY = params.get("key") || cfg.apiKey || "";
 
