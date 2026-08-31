@@ -71,6 +71,8 @@ _rate: dict[str, list[float]] = {}
 
 _lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
+_job_q: list[str] = []
+_worker_busy = False
 _model_lock = threading.Lock()
 _whisper_ready = False
 
@@ -683,8 +685,37 @@ def _process_job(job_id: str) -> None:
 
 
 def _start_thread(job_id: str) -> None:
-    t = threading.Thread(target=_process_job, args=(job_id,), daemon=True)
-    t.start()
+    global _worker_busy
+    with _lock:
+        _job_q.append(job_id)
+        if _worker_busy:
+            job = _jobs.get(job_id)
+            if job:
+                job["message"] = "Waiting for a slot…"
+                job["status"] = "queued"
+    _kick_worker()
+
+
+def _kick_worker() -> None:
+    global _worker_busy
+    with _lock:
+        if _worker_busy:
+            return
+        if not _job_q:
+            return
+        job_id = _job_q.pop(0)
+        _worker_busy = True
+
+    def run() -> None:
+        global _worker_busy
+        try:
+            _process_job(job_id)
+        finally:
+            with _lock:
+                _worker_busy = False
+            _kick_worker()
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _client_ip(request: Request) -> str:
