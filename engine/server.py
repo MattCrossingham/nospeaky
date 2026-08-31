@@ -115,7 +115,23 @@ def _public(job: dict[str, Any]) -> dict[str, Any]:
         out["srt_url"] = f"/v1/jobs/{job['id']}/srt"
     if job.get("vtt"):
         out["vtt_url"] = f"/v1/jobs/{job['id']}/vtt"
+    embed = _embed_url(job.get("source_url"))
+    if embed:
+        out["embed_url"] = embed
     return out
+
+
+def _embed_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    u = url.strip()
+    m = re.search(r"(?:dai\.ly/|dailymotion\.com/video/)([A-Za-z0-9]+)", u, re.I)
+    if m:
+        return f"https://www.dailymotion.com/embed/video/{m.group(1)}"
+    m = re.search(r"(?:youtube\.com/watch\?v=|youtu\.be/)([\w-]{6,})", u, re.I)
+    if m:
+        return f"https://www.youtube.com/embed/{m.group(1)}"
+    return None
 
 
 def _ensure_tools() -> None:
@@ -200,34 +216,35 @@ def _extract_wav(src: Path, dst: Path) -> None:
 
 
 def _fetch_url(url: str, out_dir: Path) -> Path:
+    """Audio only. Do not pull full video — we translate while they watch the embed."""
     if not shutil.which("yt-dlp"):
         raise RuntimeError("yt-dlp not found — required for URL jobs")
     if not _is_safe_public_url(url):
         raise RuntimeError("URL not allowed")
 
-    out_tmpl = str(out_dir / "source.%(ext)s")
-    r = _run(
-        [
-            "yt-dlp",
-            "--js-runtimes",
-            "deno",
-            "--impersonate",
-            "firefox",
-            "--no-playlist",
-            "-f",
-            "bv*+ba/b",
-            "--merge-output-format",
-            "mp4",
-            "-o",
-            out_tmpl,
-            "--max-filesize",
-            f"{MAX_UPLOAD_MB}M",
-            url,
-        ],
-        timeout=900,
-    )
+    out_tmpl = str(out_dir / "audio.%(ext)s")
+    cmd = [
+        "yt-dlp",
+        "--js-runtimes",
+        "deno",
+        "--impersonate",
+        "firefox",
+        "--no-playlist",
+        "-f",
+        "bestaudio[abr<=96]/bestaudio/worst",
+        "-x",
+        "--audio-format",
+        "wav",
+        "--audio-quality",
+        "7",
+        "-o",
+        out_tmpl,
+        "--max-filesize",
+        f"{MAX_UPLOAD_MB}M",
+        url,
+    ]
+    r = _run(cmd, timeout=300)
     if r.returncode != 0:
-        # retry audio-preferred for stubborn pages
         r = _run(
             [
                 "yt-dlp",
@@ -237,20 +254,19 @@ def _fetch_url(url: str, out_dir: Path) -> Path:
                 "firefox",
                 "--no-playlist",
                 "-f",
-                "bestaudio/best",
+                "bestaudio/worst",
                 "-o",
-                out_tmpl,
+                str(out_dir / "audio.%(ext)s"),
                 "--max-filesize",
                 f"{MAX_UPLOAD_MB}M",
                 url,
             ],
-            timeout=900,
+            timeout=300,
         )
     if r.returncode != 0:
         raise RuntimeError(f"download failed: {(r.stderr or r.stdout)[-800:]}")
 
-    candidates = sorted(out_dir.glob("source.*"), key=lambda p: p.stat().st_mtime, reverse=True)
-    # ignore .part etc
+    candidates = sorted(out_dir.glob("audio.*"), key=lambda p: p.stat().st_mtime, reverse=True)
     candidates = [p for p in candidates if p.suffix.lower() not in {".part", ".ytdl", ".json"}]
     if not candidates:
         raise RuntimeError("download produced no file")
@@ -370,7 +386,7 @@ def _get_faster_model():
     return _faster_model
 
 
-def _transcribe(wav: Path, source_lang: str, target_lang: str) -> tuple[list[dict[str, Any]], str | None]:
+def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) -> tuple[list[dict[str, Any]], str | None]:
     # Whisper task=translate always goes to English.
     # For other target languages: transcribe then machine-translate.
     want_en = target_lang == "en"
@@ -436,6 +452,8 @@ def _transcribe(wav: Path, source_lang: str, target_lang: str) -> tuple[list[dic
                         "text": text,
                     }
                 )
+                if on_partial:
+                    on_partial(list(cues), detected)
 
     # If target is not English and not same as detected/source, translate cues.
     src = language or detected or "auto"
@@ -462,10 +480,9 @@ def _process_job(job_id: str) -> None:
 
         media_path = Path(job["media_path"])
         if job.get("source_url") and not media_path.exists():
-            _set(job_id, progress=10, message="Downloading…")
+            _set(job_id, progress=10, message="Listening…")
             media_path = _fetch_url(job["source_url"], jdir)
-            # prefer playable mp4 name
-            final = jdir / f"media{media_path.suffix.lower() or '.mp4'}"
+            final = jdir / f"media{media_path.suffix.lower() or '.wav'}"
             if media_path != final:
                 media_path.replace(final)
                 media_path = final
@@ -477,13 +494,30 @@ def _process_job(job_id: str) -> None:
         duration = _probe_duration(media_path)
         if duration and duration > MAX_DURATION_SEC:
             raise RuntimeError(f"Video too long ({int(duration)}s). Max is {MAX_DURATION_SEC}s for now.")
-        _set(job_id, duration=duration, progress=25, message="Extracting audio…")
+        _set(job_id, duration=duration, progress=20, message="Translating…")
 
         wav = jdir / "audio.wav"
-        _extract_wav(media_path, wav)
+        if media_path.suffix.lower() == ".wav":
+            wav = media_path
+        else:
+            _extract_wav(media_path, wav)
 
-        _set(job_id, progress=40, message="Listening / writing subtitles…")
-        cues, detected = _transcribe(wav, job.get("source_lang") or "auto", job.get("target_lang") or "en")
+        def _partial(cues_so_far, detected=None):
+            _set(
+                job_id,
+                cues=cues_so_far,
+                detected_language=detected,
+                progress=min(85, 25 + len(cues_so_far) * 2),
+                message="Translating…",
+                status="working",
+            )
+
+        cues, detected = _transcribe(
+            wav,
+            job.get("source_lang") or "auto",
+            job.get("target_lang") or "en",
+            on_partial=_partial,
+        )
 
         _set(job_id, progress=85, message="Building .srt…", detected_language=detected)
         srt = _cues_to_srt(cues)
