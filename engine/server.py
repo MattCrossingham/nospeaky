@@ -561,20 +561,43 @@ def _cues_to_vtt(cues: list[dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
+def _junk_translation(s: str) -> bool:
+    t = (s or "").lower()
+    return any(
+        x in t
+        for x in (
+            "error 500",
+            "server error",
+            "that's an error",
+            "there was an error",
+            "please try again later",
+            "that's all we know",
+        )
+    )
+
+
 def _translate_lines(texts: list[str], target: str) -> list[str]:
     if not texts:
         return []
-    # Google translate via deep-translator — fine for local testing.
     from deep_translator import GoogleTranslator
 
-    # deep-translator uses ISO codes mostly matching ours
-    lang = target
-    if lang == "zh":
-        lang = "zh-CN"
-    tr = GoogleTranslator(source="auto", target=lang)
+    lang = "zh-CN" if target == "zh" else target
+    try:
+        tr = GoogleTranslator(source="auto", target=lang)
+    except Exception:
+        return list(texts)
     out: list[str] = []
     batch: list[str] = []
-    max_chars = 4200
+    max_chars = 1800
+
+    def one(line: str) -> str:
+        try:
+            got = tr.translate(line)
+        except Exception:
+            return line
+        if not got or _junk_translation(got):
+            return line
+        return got
 
     def flush() -> None:
         nonlocal batch, out
@@ -584,24 +607,14 @@ def _translate_lines(texts: list[str], target: str) -> list[str]:
         try:
             translated = tr.translate(joined)
         except Exception:
-            # fall back line by line
-            for line in batch:
-                try:
-                    out.append(tr.translate(line))
-                except Exception:
-                    out.append(line)
+            out.extend(one(line) for line in batch)
             batch = []
             return
-        lines = translated.split("\n")
-        if len(lines) == len(batch):
-            out.extend(lines)
+        lines = (translated or "").split("\n")
+        if _junk_translation(translated or "") or len(lines) != len(batch):
+            out.extend(one(line) for line in batch)
         else:
-            # mismatch — translate one by one
-            for line in batch:
-                try:
-                    out.append(tr.translate(line))
-                except Exception:
-                    out.append(line)
+            out.extend(one(src) if _junk_translation(dst) else dst for src, dst in zip(batch, lines))
         batch = []
 
     for t in texts:
@@ -610,6 +623,8 @@ def _translate_lines(texts: list[str], target: str) -> list[str]:
             flush()
         batch.append(t)
     flush()
+    if len(out) != len(texts):
+        return list(texts)
     return out
 
 
@@ -780,12 +795,13 @@ def _process_pro(job_id: str) -> None:
             cues = [{"start": 0.0, "end": float(src_dur or 4.0), "text": text}]
 
     src = iso_lang(source_lang) or detected or "auto"
-    if target_lang not in ("", None, "same") and target_lang != src:
-        if not (target_lang == "en" and src in ("en", "auto", None)):
-            texts = [c["text"] for c in cues]
-            translated = _translate_lines(texts, "en" if target_lang == "en" else target_lang)
-            for c, t in zip(cues, translated):
-                c["text"] = t
+    # Pro speech already wrote the words. Don't run a second translator into English —
+    # that path was writing "Error 500" into the captions.
+    if target_lang not in ("", None, "same", "en") and target_lang != src:
+        texts = [c["text"] for c in cues]
+        translated = _translate_lines(texts, target_lang)
+        for c, t in zip(cues, translated):
+            c["text"] = t
 
     _set(job_id, progress=85, message="Building .srt…", detected_language=detected, cues=list(cues))
     srt = _cues_to_srt(cues)
