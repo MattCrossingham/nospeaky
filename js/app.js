@@ -241,13 +241,12 @@
       const data = await res.json();
       engineLive = Boolean(data && data.ok);
       if (engineLive) {
-        const auth = data.auth_required ? " · key on" : "";
-        setStatus(`Engine online${auth}. Paste a link or drop a file, then Start.`, "ok");
+        setStatus("Paste a link, pick a language, then Translate.", "ok");
       }
     } catch (_) {
       engineLive = false;
       setStatus(
-        `Engine offline right now. If you’re Matt, the Mac tunnel/engine needs to be running.`,
+        "Translator is warming up. Try again in a minute.",
         "err"
       );
     }

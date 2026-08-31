@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>NoSpeaky — Watch with on-device subtitles</title>
-<meta name="description" content="Drop a video on your phone. Subtitles are made on your device. Nothing uploaded to our servers.">
+<title>NoSpeaky — Live translator</title>
+<meta name="description" content="Paste a video link. Pick a language. Captions while it plays.">
 <meta name="theme-color" content="#0a0b0f">
 <link rel="stylesheet" href="css/site.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%237cffa1'/%3E%3C/svg%3E">
@@ -23,19 +23,16 @@
 
   <main class="app-main">
     <header class="app-head">
-      <h1>Watch with subtitles</h1>
+      <h1>Watch with a translator</h1>
       <p class="lede">
-        Drop a video or audio file. Your <strong>phone/computer</strong> writes the subtitles.
-        Nothing is uploaded to NoSpeaky servers. First run downloads a small AI model, then it stays cached.
+        Paste a video link. Pick the language you want. Captions while it plays.
       </p>
     </header>
 
     <form id="job-form" class="panel" autocomplete="off">
-      <label class="drop" id="drop">
-        <input id="file" name="file" type="file" accept="video/*,audio/*" hidden>
-        <span class="drop-title">Tap to pick a video / audio</span>
-        <span class="drop-sub">Works best with short clips first (under ~3 min on phones)</span>
-        <span class="file-name" id="file-name" hidden></span>
+      <label class="field">
+        <span class="label">Video link</span>
+        <input id="url" name="url" type="url" inputmode="url" placeholder="https://…" required>
       </label>
 
       <div class="row-2">
@@ -53,39 +50,31 @@
             <option value="portuguese">Portuguese</option>
             <option value="hindi">Hindi</option>
             <option value="arabic">Arabic</option>
-            <option value="indonesian">Indonesian</option>
-            <option value="vietnamese">Vietnamese</option>
-            <option value="thai">Thai</option>
           </select>
         </label>
 
         <label class="field">
-          <span class="label">Subtitle language</span>
+          <span class="label">Read it in</span>
           <select id="target-lang" name="target_lang">
             <option value="en" selected>English</option>
-            <option value="same">Same as spoken (no translate)</option>
-            <option value="zh">Chinese (extra model)</option>
-            <option value="ja">Japanese (extra model)</option>
-            <option value="ko">Korean (extra model)</option>
-            <option value="es">Spanish (extra model)</option>
-            <option value="fr">French (extra model)</option>
-            <option value="de">German (extra model)</option>
+            <option value="same">Same as spoken</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
           </select>
         </label>
       </div>
 
-      <label class="field">
-        <span class="label">Model size (phone: start tiny)</span>
-        <select id="model-size">
-          <option value="onnx-community/whisper-tiny" selected>Tiny — fastest (recommended on phone)</option>
-          <option value="onnx-community/whisper-base">Base — better quality, slower</option>
-          <option value="onnx-community/whisper-small">Small — best quality here, heavy</option>
-        </select>
-      </label>
+      <input id="file" name="file" type="file" accept="video/*,audio/*" hidden>
+      <span class="file-name" id="file-name" hidden></span>
+      <div id="drop" hidden></div>
 
       <div class="actions">
-        <button type="submit" class="btn primary" id="start-btn" disabled>Start on this device</button>
-        <p class="status-line" id="form-status" role="status">Pick a file to begin.</p>
+        <button type="submit" class="btn primary" id="start-btn">Translate</button>
+        <p class="status-line" id="form-status" role="status">Paste a link to begin.</p>
       </div>
     </form>
 
@@ -111,28 +100,6 @@
 
       <ol class="cue-list" id="cue-list" aria-label="Subtitle lines"></ol>
     </section>
-
-    <section class="section plain">
-      <h2>Phone tips</h2>
-      <ol class="steps">
-        <li>
-          <strong>Use Safari or Chrome</strong>
-          <span>First run needs network once to cache the model. After that it can work offline.</span>
-        </li>
-        <li>
-          <strong>Start short</strong>
-          <span>30–90 second clip first. Longer videos need more time and battery.</span>
-        </li>
-        <li>
-          <strong>Keep the tab open</strong>
-          <span>If the phone sleeps the job hard, leave the screen on while it runs.</span>
-        </li>
-      </ol>
-      <p class="fine">
-        Privacy: media stays on your device. We don’t receive your video.
-        Built by <a href="https://pistudios.app">Pi Studios</a>.
-      </p>
-    </section>
   </main>
 
   <footer class="foot">
@@ -140,6 +107,7 @@
     <a href="privacy.html">Privacy</a>
   </footer>
 
-  <script type="module" src="js/watch-client.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
