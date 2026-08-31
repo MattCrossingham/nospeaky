@@ -44,14 +44,16 @@
   let srtText = "";
   let vttText = "";
   let embedClock = 0;
+  let embedTime = 0;
+  let hasEmbedTime = false;
   let overlayRaf = 0;
 
   function embedFromLink(u) {
     if (!u) return "";
     let m = u.match(/(?:dai\.ly\/|dailymotion\.com\/video\/)([A-Za-z0-9]+)/i);
-    if (m) return "https://www.dailymotion.com/embed/video/" + m[1] + "?autoplay=1";
+    if (m) return "https://www.dailymotion.com/embed/video/" + m[1] + "?autoplay=1&api=postMessage";
     m = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
-    if (m) return "https://www.youtube.com/embed/" + m[1] + "?autoplay=1";
+    if (m) return "https://www.youtube.com/embed/" + m[1] + "?autoplay=1&enablejsapi=1";
     return "";
   }
 
@@ -59,7 +61,20 @@
     if (!embed || !eu) return;
     if (embed.src !== eu) {
       embed.src = eu;
-      embedClock = Date.now() / 1000;
+      embedClock = 0;
+      embedTime = 0;
+      hasEmbedTime = false;
+      embed.onload = () => {
+        setTimeout(() => {
+          if (!hasEmbedTime) embedClock = Date.now() / 1000;
+          try {
+            embed.contentWindow.postMessage(
+              '{"command":"subscribe","parameters":["timeupdate","playing","progress"]}',
+              "*"
+            );
+          } catch (_) { /* ignore */ }
+        }, 500);
+      };
     }
     embed.hidden = false;
     embed.removeAttribute("hidden");
@@ -245,22 +260,23 @@
       return;
     }
     const usingEmbed = embed && !embed.hidden;
-    const t = usingEmbed && embedClock
-      ? Date.now() / 1000 - embedClock
-      : (player.currentTime || 0);
+    let t = player.currentTime || 0;
+    if (usingEmbed) {
+      if (hasEmbedTime) t = embedTime;
+      else if (embedClock) t = Date.now() / 1000 - embedClock;
+      else t = -1;
+    }
     let active = null;
     let activeIdx = -1;
-    for (let i = 0; i < cues.length; i++) {
-      const c = cues[i];
-      if (t >= c.start && t <= c.end) {
-        active = c;
-        activeIdx = i;
-        break;
+    if (t >= 0) {
+      for (let i = 0; i < cues.length; i++) {
+        const c = cues[i];
+        if (t >= c.start && t <= c.end + 0.4) {
+          active = c;
+          activeIdx = i;
+          break;
+        }
       }
-    }
-    if (!active && cues.length) {
-      active = cues[cues.length - 1];
-      activeIdx = cues.length - 1;
     }
     cueOverlay.textContent = active ? active.text : "";
     if (liveSub) liveSub.textContent = active ? active.text : "";
@@ -268,6 +284,22 @@
       li.classList.toggle("active", i === activeIdx);
     });
   }
+
+  window.addEventListener("message", (ev) => {
+    let d = ev.data;
+    if (typeof d === "string") {
+      try { d = JSON.parse(d); } catch { return; }
+    }
+    if (!d || typeof d !== "object") return;
+    const t =
+      (typeof d.time === "number" && d.time) ||
+      (typeof d.currentTime === "number" && d.currentTime) ||
+      (d.info && typeof d.info.currentTime === "number" && d.info.currentTime);
+    if (typeof t === "number" && Number.isFinite(t)) {
+      embedTime = t;
+      hasEmbedTime = true;
+    }
+  });
 
   function tickOverlay() {
     syncOverlay();
