@@ -10,6 +10,7 @@ until auth + rate limits exist.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import re
@@ -55,6 +56,27 @@ ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
 ELEVENLABS_STT_MODEL = os.environ.get("ELEVENLABS_STT_MODEL", "scribe_v2").strip() or "scribe_v2"
 PRO_MAX_DURATION_SEC = int(os.environ.get("NOSPEAKY_PRO_MAX_DURATION_SEC", "3600"))
 PRO_MAX_CONCURRENT = int(os.environ.get("NOSPEAKY_PRO_MAX_CONCURRENT", "4"))
+
+
+def _pro_gate_token() -> str:
+    env = os.environ.get("NOSPEAKY_PRO_TOKEN", "").strip()
+    if env:
+        return env
+    p = Path("/app/engine/data/pro_token")
+    if p.exists():
+        return p.read_text(encoding="utf-8").strip()
+    return ""
+
+
+def _pro_token_ok(got: str | None) -> bool:
+    need = _pro_gate_token()
+    if not need:
+        return False
+    got_b = (got or "").strip().encode("utf-8")
+    need_b = need.encode("utf-8")
+    if len(got_b) != len(need_b):
+        return False
+    return hmac.compare_digest(got_b, need_b)
 
 app = FastAPI(title="NoSpeaky Engine", version="0.1.1")
 app.add_middleware(
@@ -954,6 +976,7 @@ def health() -> dict[str, Any]:
         "home_network": False,
         "pro_ready": bool(ELEVENLABS_API_KEY),
         "pro_max_duration_sec": PRO_MAX_DURATION_SEC,
+        "pro_locked": True,
     }
 
 
@@ -965,6 +988,7 @@ async def create_job(
     source_lang: str = Form("auto"),
     target_lang: str = Form("en"),
     tier: str = Form("free"),
+    pro_token: str = Form(""),
     _: None = Depends(_check_key),
 ) -> JSONResponse:
     _ensure_tools()
@@ -975,6 +999,8 @@ async def create_job(
         raise HTTPException(400, "tier must be free or pro")
     if tier_n == "pro" and not ELEVENLABS_API_KEY:
         raise HTTPException(503, "Pro is not connected yet.")
+    if tier_n == "pro" and not _pro_token_ok(pro_token):
+        raise HTTPException(403, "Pro is locked.")
     if not file and not url:
         raise HTTPException(400, "Provide a file or url")
     if file and url:
