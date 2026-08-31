@@ -9,3 +9,4 @@ deep-translator>=1.11
 python-dotenv>=1.0
 yt-dlp>=2025.1.1
 curl_cffi>=0.7
+argostranslate>=1.9.6

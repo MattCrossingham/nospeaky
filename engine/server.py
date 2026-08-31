@@ -23,6 +23,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from engine.scribe import iso_lang, transcribe_file, words_to_cues
+from engine.translate_local import iso2 as _iso2
+from engine.translate_local import translate_lines as _local_translate
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -576,55 +578,18 @@ def _junk_translation(s: str) -> bool:
     )
 
 
-def _translate_lines(texts: list[str], target: str) -> list[str]:
+def _translate_lines(texts: list[str], target: str, source: str | None = None) -> list[str]:
     if not texts:
         return []
-    from deep_translator import GoogleTranslator
-
-    lang = "zh-CN" if target == "zh" else target
-    try:
-        tr = GoogleTranslator(source="auto", target=lang)
-    except Exception:
+    got = _local_translate(texts, target, source)
+    if len(got) != len(texts):
         return list(texts)
-    out: list[str] = []
-    batch: list[str] = []
-    max_chars = 1800
-
-    def one(line: str) -> str:
-        try:
-            got = tr.translate(line)
-        except Exception:
-            return line
-        if not got or _junk_translation(got):
-            return line
-        return got
-
-    def flush() -> None:
-        nonlocal batch, out
-        if not batch:
-            return
-        joined = "\n".join(batch)
-        try:
-            translated = tr.translate(joined)
-        except Exception:
-            out.extend(one(line) for line in batch)
-            batch = []
-            return
-        lines = (translated or "").split("\n")
-        if _junk_translation(translated or "") or len(lines) != len(batch):
-            out.extend(one(line) for line in batch)
+    out = []
+    for src, dst in zip(texts, got):
+        if not dst or _junk_translation(dst):
+            out.append(src)
         else:
-            out.extend(one(src) if _junk_translation(dst) else dst for src, dst in zip(batch, lines))
-        batch = []
-
-    for t in texts:
-        t = t or ""
-        if sum(len(x) for x in batch) + len(t) + 1 > max_chars:
-            flush()
-        batch.append(t)
-    flush()
-    if len(out) != len(texts):
-        return list(texts)
+            out.append(dst)
     return out
 
 
@@ -794,12 +759,12 @@ def _process_pro(job_id: str) -> None:
         if text:
             cues = [{"start": 0.0, "end": float(src_dur or 4.0), "text": text}]
 
-    src = iso_lang(source_lang) or detected or "auto"
-    # Pro speech already wrote the words. Don't run a second translator into English —
-    # that path was writing "Error 500" into the captions.
-    if target_lang not in ("", None, "same", "en") and target_lang != src:
+    src = _iso2(iso_lang(source_lang) or detected) or iso_lang(source_lang) or detected
+    tgt = target_lang or "en"
+    if tgt not in ("", None, "same") and _iso2(tgt) != _iso2(src) and _iso2(tgt) != src:
+        _set(job_id, progress=70, message="Translating the lines…")
         texts = [c["text"] for c in cues]
-        translated = _translate_lines(texts, target_lang)
+        translated = _translate_lines(texts, tgt, source=src)
         for c, t in zip(cues, translated):
             c["text"] = t
 
