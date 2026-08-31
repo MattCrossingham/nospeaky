@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NoSpeaky — Subtitles on your device</title>
-<meta name="description" content="Drop a video. Your phone writes subtitles. Nothing uploaded to our servers.">
+<title>NoSpeaky — Live translator</title>
+<meta name="description" content="Paste a video link. Pick a language. Captions while it plays.">
 <meta name="theme-color" content="#0a0b0f">
 <link rel="stylesheet" href="css/site.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%237cffa1'/%3E%3C/svg%3E">
@@ -23,49 +23,46 @@
 
   <main>
     <section class="hero">
-      <p class="eyebrow">On your phone · nothing uploaded</p>
-      <h1>Subtitles without<br>sending the video away.</h1>
+      <p class="eyebrow">Live translator</p>
+      <h1>Watch it in your language.</h1>
       <p class="lede">
-        Pick a clip. Your device runs the speech model and writes captions.
-        NoSpeaky never receives your file. No home server. No cloud GPU bill for us.
+        Paste a video link. Pick the language you want to read.
+        Captions while it plays — like someone translating next to you.
       </p>
       <div class="hero-actions">
-        <a class="btn primary" href="watch.html">Open Watch</a>
+        <a class="btn primary" href="watch.html">Translate a video</a>
         <a class="btn ghost" href="#how">How it works</a>
       </div>
-      <p class="hint hero-note">
-        Best first test: 30–90 second video. First run downloads a small model, then it’s cached.
-      </p>
     </section>
 
     <section id="how" class="section">
       <h2>How it works</h2>
       <ol class="steps">
         <li>
-          <strong>1. You pick a file</strong>
-          <span>Video or audio from your phone/camera roll.</span>
+          <strong>1. Paste a link</strong>
+          <span>Any public video URL.</span>
         </li>
         <li>
-          <strong>2. Your device listens</strong>
-          <span>Whisper runs in the browser (WebGPU when available).</span>
+          <strong>2. Pick a language</strong>
+          <span>What you want to read, not just English.</span>
         </li>
         <li>
-          <strong>3. You watch + download</strong>
-          <span>Captions on screen, plus a normal .srt file.</span>
+          <strong>3. Watch</strong>
+          <span>Captions as it plays. Download .srt if you want.</span>
         </li>
       </ol>
     </section>
 
     <section id="pricing" class="section">
-      <h2>Pricing (later)</h2>
+      <h2>Pricing</h2>
       <div class="price-grid">
         <article class="price-card">
           <h3>Now</h3>
           <p class="price">Free</p>
           <ul>
-            <li>On-device engine</li>
-            <li>Tiny/base models</li>
-            <li>SRT download</li>
+            <li>Paste a link</li>
+            <li>Live captions</li>
+            <li>Short clips</li>
           </ul>
         </article>
         <article class="price-card featured">
@@ -73,23 +70,12 @@
           <h3>Pro</h3>
           <p class="price">~$5–8<span>/mo</span></p>
           <ul>
-            <li>Longer clips helpers</li>
-            <li>Better models</li>
-            <li>URL tools if we add a safe proxy</li>
+            <li>Longer videos</li>
+            <li>Any language</li>
+            <li>Keep watching</li>
           </ul>
         </article>
       </div>
-      <p class="fine">Money features come after the on-device path feels good on real phones.</p>
-    </section>
-
-    <section id="status" class="section">
-      <h2>Status</h2>
-      <ul class="status-list">
-        <li><span class="tag live">live</span> Site + HTTPS</li>
-        <li><span class="tag live">live</span> On-device Watch (Transformers.js Whisper)</li>
-        <li><span class="tag later">later</span> URL paste without a server</li>
-      </ul>
-      <p class="fine">Built by <a href="https://pistudios.app">Pi Studios</a>. Your home network is not involved.</p>
     </section>
   </main>
 
