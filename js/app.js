@@ -46,6 +46,26 @@
   let embedClock = 0;
   let overlayRaf = 0;
 
+  function embedFromLink(u) {
+    if (!u) return "";
+    let m = u.match(/(?:dai\.ly\/|dailymotion\.com\/video\/)([A-Za-z0-9]+)/i);
+    if (m) return "https://www.dailymotion.com/embed/video/" + m[1] + "?autoplay=1";
+    m = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
+    if (m) return "https://www.youtube.com/embed/" + m[1] + "?autoplay=1";
+    return "";
+  }
+
+  function showEmbed(eu) {
+    if (!embed || !eu) return;
+    if (embed.src !== eu) {
+      embed.src = eu;
+      embedClock = Date.now() / 1000;
+    }
+    embed.hidden = false;
+    player.hidden = true;
+    if (cueOverlay) cueOverlay.style.display = "none";
+  }
+
   function apiHeaders(extra) {
     const h = Object.assign({}, extra || {});
     if (API_KEY) h["X-NoSpeaky-Key"] = API_KEY;
@@ -355,6 +375,8 @@
     const file = fileInput.files && fileInput.files[0];
     startBtn.disabled = true;
     playerSection.hidden = false;
+    const link = urlInput.value.trim();
+    showEmbed(embedFromLink(link));
     jobState.textContent = "Working";
     jobDetail.textContent = "Sending job…";
     progressBar.style.width = "5%";
@@ -407,12 +429,7 @@
       }
 
       if (job.embed_url && embed) {
-        if (embed.src !== job.embed_url) {
-          embed.src = job.embed_url;
-          embedClock = Date.now() / 1000;
-        }
-        embed.hidden = false;
-        player.hidden = true;
+        showEmbed(job.embed_url);
       }
 
       if (Array.isArray(job.cues) && job.cues.length) {
