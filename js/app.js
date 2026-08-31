@@ -42,6 +42,8 @@
   let objectUrl = null;
   let srtText = "";
   let vttText = "";
+  let embedClock = 0;
+  let overlayRaf = 0;
 
   function apiHeaders(extra) {
     const h = Object.assign({}, extra || {});
@@ -218,7 +220,10 @@
       cueOverlay.textContent = "";
       return;
     }
-    const t = player.currentTime || 0;
+    const usingEmbed = embed && !embed.hidden;
+    const t = usingEmbed && embedClock
+      ? Date.now() / 1000 - embedClock
+      : (player.currentTime || 0);
     let active = null;
     let activeIdx = -1;
     for (let i = 0; i < cues.length; i++) {
@@ -229,11 +234,26 @@
         break;
       }
     }
+    if (!active) {
+      for (let i = cues.length - 1; i >= 0; i--) {
+        if (t >= cues[i].start) {
+          active = cues[i];
+          activeIdx = i;
+          break;
+        }
+      }
+    }
     cueOverlay.textContent = active ? active.text : "";
     [...cueList.children].forEach((li, i) => {
       li.classList.toggle("active", i === activeIdx);
     });
   }
+
+  function tickOverlay() {
+    syncOverlay();
+    overlayRaf = requestAnimationFrame(tickOverlay);
+  }
+  tickOverlay();
 
   async function probeEngine() {
     try {
@@ -384,7 +404,10 @@
       }
 
       if (job.embed_url && embed) {
-        if (embed.src !== job.embed_url) embed.src = job.embed_url;
+        if (embed.src !== job.embed_url) {
+          embed.src = job.embed_url;
+          embedClock = Date.now() / 1000;
+        }
         embed.hidden = false;
         player.hidden = true;
       }
@@ -426,7 +449,7 @@
       if (st === "failed" || st === "error") {
         throw new Error(job.error || job.message || "Job failed");
       }
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, 400));
     }
   }
 

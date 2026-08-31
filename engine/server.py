@@ -127,10 +127,10 @@ def _embed_url(url: str | None) -> str | None:
     u = url.strip()
     m = re.search(r"(?:dai\.ly/|dailymotion\.com/video/)([A-Za-z0-9]+)", u, re.I)
     if m:
-        return f"https://www.dailymotion.com/embed/video/{m.group(1)}"
+        return f"https://www.dailymotion.com/embed/video/{m.group(1)}?autoplay=1"
     m = re.search(r"(?:youtube\.com/watch\?v=|youtu\.be/)([\w-]{6,})", u, re.I)
     if m:
-        return f"https://www.youtube.com/embed/{m.group(1)}"
+        return f"https://www.youtube.com/embed/{m.group(1)}?autoplay=1"
     return None
 
 
@@ -271,6 +271,142 @@ def _fetch_url(url: str, out_dir: Path) -> Path:
     if not candidates:
         raise RuntimeError("download produced no file")
     return candidates[0]
+
+
+def _audio_stream_url(url: str) -> str:
+    if not shutil.which("yt-dlp"):
+        raise RuntimeError("yt-dlp not found — required for URL jobs")
+    r = _run(
+        [
+            "yt-dlp",
+            "--js-runtimes",
+            "deno",
+            "--impersonate",
+            "firefox",
+            "--no-playlist",
+            "-f",
+            "bestaudio[abr<=96]/bestaudio/worst",
+            "-g",
+            url,
+        ],
+        timeout=60,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"download failed: {(r.stderr or r.stdout)[-800:]}")
+    lines = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+    if not lines:
+        raise RuntimeError("no audio stream")
+    return lines[-1]
+
+
+def _process_url_live(job_id: str, url: str, jdir: Path, source_lang: str, target_lang: str) -> None:
+    """Chunked audio: captions as soon as each few seconds are heard."""
+    _set(job_id, status="working", progress=8, message="Listening…")
+    stream = _audio_stream_url(url)
+    chunk_dir = jdir / "chunks"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    out_pat = str(chunk_dir / "c_%03d.wav")
+    proc = subprocess.Popen(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            stream,
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            "-f",
+            "segment",
+            "-segment_time",
+            "5",
+            "-reset_timestamps",
+            "1",
+            out_pat,
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    cues: list[dict[str, Any]] = []
+    offset = 0.0
+    seen: set[Path] = set()
+    t0 = time.time()
+    detected: str | None = None
+
+    def consider(files: list[Path], include_last: bool) -> None:
+        nonlocal offset, detected
+        ready = files if include_last else files[:-1]
+        for f in ready:
+            if f in seen:
+                continue
+            if f.stat().st_size < 2000:
+                continue
+            seen.add(f)
+            part, det = _transcribe(f, source_lang, target_lang)
+            if det:
+                detected = det
+            for c in part:
+                cues.append(
+                    {
+                        "start": float(c["start"]) + offset,
+                        "end": float(c["end"]) + offset,
+                        "text": c["text"],
+                    }
+                )
+            dur = _probe_duration(f) or 5.0
+            offset += dur
+            _set(
+                job_id,
+                cues=list(cues),
+                detected_language=detected,
+                duration=offset,
+                progress=min(90, 12 + len(cues) * 2),
+                message="Translating…",
+                status="working",
+            )
+            if offset > MAX_DURATION_SEC:
+                proc.kill()
+                return
+
+    try:
+        while True:
+            files = sorted(chunk_dir.glob("c_*.wav"))
+            finished = proc.poll() is not None
+            consider(files, include_last=finished)
+            if finished:
+                break
+            if time.time() - t0 > 900:
+                proc.kill()
+                raise RuntimeError("translate timed out")
+            if offset > MAX_DURATION_SEC:
+                break
+            time.sleep(0.2)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+    srt = _cues_to_srt(cues)
+    vtt = _cues_to_vtt(cues)
+    (jdir / "captions.srt").write_text(srt, encoding="utf-8")
+    (jdir / "captions.vtt").write_text(vtt, encoding="utf-8")
+    _set(
+        job_id,
+        status="ready",
+        progress=100,
+        message="Ready",
+        cues=cues,
+        srt=srt,
+        vtt=vtt,
+        detected_language=detected,
+        duration=offset,
+        error=None,
+    )
 
 
 def _srt_ts(sec: float) -> str:
@@ -476,18 +612,19 @@ def _process_job(job_id: str) -> None:
     try:
         job = _jobs[job_id]
         jdir = _job_dir(job_id)
+        if job.get("source_url"):
+            _process_url_live(
+                job_id,
+                job["source_url"],
+                jdir,
+                job.get("source_lang") or "auto",
+                job.get("target_lang") or "en",
+            )
+            return
+
         _set(job_id, status="working", progress=5, message="Preparing media…")
 
         media_path = Path(job["media_path"])
-        if job.get("source_url") and not media_path.exists():
-            _set(job_id, progress=10, message="Listening…")
-            media_path = _fetch_url(job["source_url"], jdir)
-            final = jdir / f"media{media_path.suffix.lower() or '.wav'}"
-            if media_path != final:
-                media_path.replace(final)
-                media_path = final
-            _set(job_id, media_path=str(media_path), media_name=media_path.name)
-
         if not media_path.exists():
             raise RuntimeError("media missing")
 
