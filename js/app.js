@@ -13,6 +13,7 @@
     "https://api.nospeaky.ai"
   ).replace(/\/$/, "");
   const API_KEY = params.get("key") || cfg.apiKey || "";
+  const PRO_TOKEN = (params.get("pro") || "").trim();
 
   let engineLive = false;
   let proReady = false;
@@ -391,19 +392,26 @@
       const data = await res.json();
       engineLive = Boolean(data && data.ok);
       proReady = Boolean(data && data.pro_ready);
-      if (proBtn) proBtn.disabled = !(engineLive && proReady);
+      const canPro = engineLive && proReady && Boolean(PRO_TOKEN);
+      if (proBtn) {
+        proBtn.hidden = !PRO_TOKEN;
+        proBtn.disabled = !canPro;
+      }
       if (engineLive) {
         setStatus(
-          proReady
+          canPro
             ? "Paste a link, pick a language, then Translate or Pro."
-            : "Paste a link, pick a language, then Translate. Pro is not connected yet.",
+            : "Paste a link, pick a language, then Translate.",
           "ok"
         );
       }
     } catch (_) {
       engineLive = false;
       proReady = false;
-      if (proBtn) proBtn.disabled = true;
+      if (proBtn) {
+        proBtn.hidden = !PRO_TOKEN;
+        proBtn.disabled = true;
+      }
       setStatus(
         "Translator is warming up. Try again in a minute.",
         "err"
@@ -487,8 +495,8 @@
       return;
     }
     const tier = (tierInput && tierInput.value) || "free";
-    if (tier === "pro" && !proReady) {
-      setStatus("Pro is not connected yet.", "err");
+    if (tier === "pro" && (!proReady || !PRO_TOKEN)) {
+      setStatus("Pro is locked.", "err");
       if (tierInput) tierInput.value = "free";
       return;
     }
@@ -511,6 +519,7 @@
       body.append("source_lang", sourceLang.value);
       body.append("target_lang", targetLang.value);
       body.append("tier", tier);
+      if (tier === "pro" && PRO_TOKEN) body.append("pro_token", PRO_TOKEN);
 
       const res = await apiFetch("/v1/jobs", { method: "POST", body });
       if (!res.ok) {
@@ -530,7 +539,10 @@
       setStatus(`Failed: ${err.message || err}`, "err");
     } finally {
       startBtn.disabled = false;
-      if (proBtn) proBtn.disabled = !(engineLive && proReady);
+      if (proBtn) {
+        proBtn.hidden = !PRO_TOKEN;
+        proBtn.disabled = !(engineLive && proReady && PRO_TOKEN);
+      }
       if (tierInput) tierInput.value = "free";
     }
   });
