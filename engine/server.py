@@ -109,7 +109,9 @@ def _public(job: dict[str, Any]) -> dict[str, Any]:
         "cues": job.get("cues") or [],
         "srt": job.get("srt"),
         "vtt": job.get("vtt"),
-        "duration": job.get("duration"),
+        "duration": job.get("source_duration") or job.get("duration"),
+        "eta_sec": _eta_sec(job),
+        "heard": job.get("heard"),
     }
     if job.get("media_name"):
         out["media_url"] = f"/v1/jobs/{job['id']}/media"
@@ -121,6 +123,57 @@ def _public(job: dict[str, Any]) -> dict[str, Any]:
     if embed:
         out["embed_url"] = embed
     return out
+
+
+def _eta_sec(job: dict[str, Any]) -> int:
+    st = str(job.get("status") or "").lower()
+    if st in {"ready", "done", "completed", "failed", "error"}:
+        return 0
+    now = time.time()
+    created = float(job.get("created_at") or now)
+    elapsed = max(0.0, now - created)
+    src = job.get("source_duration")
+    heard = job.get("heard")
+    progress = float(job.get("progress") or 0)
+    if src:
+        remain_audio = float(src)
+        if heard is not None:
+            remain_audio = max(0.0, float(src) - float(heard))
+        return int(max(0.0, remain_audio + 6.0))
+    if progress > 8 and elapsed > 3:
+        return int(max(0.0, elapsed * (100.0 - progress) / max(progress, 1.0)))
+    return int(max(8.0, 90.0 - elapsed))
+
+
+def _probe_url_duration(url: str) -> float | None:
+    if not shutil.which("yt-dlp"):
+        return None
+    r = _run(
+        [
+            "yt-dlp",
+            "--js-runtimes",
+            "deno",
+            "--impersonate",
+            "firefox",
+            "--no-playlist",
+            "--print",
+            "duration",
+            url,
+        ],
+        timeout=45,
+    )
+    if r.returncode != 0:
+        return None
+    lines = [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    try:
+        val = float(lines[-1])
+    except ValueError:
+        return None
+    if val <= 0:
+        return None
+    return val
 
 
 def _embed_url(url: str | None) -> str | None:
@@ -303,7 +356,17 @@ def _audio_stream_url(url: str) -> str:
 
 def _process_url_live(job_id: str, url: str, jdir: Path, source_lang: str, target_lang: str) -> None:
     """Chunked audio: captions as soon as each few seconds are heard."""
-    _set(job_id, status="working", progress=8, message="Listening…")
+    _set(job_id, status="working", progress=4, message="Timing the clip…")
+    src_dur = _probe_url_duration(url)
+    _set(
+        job_id,
+        status="working",
+        progress=8,
+        message="Translating…",
+        source_duration=src_dur,
+        duration=src_dur,
+        heard=0,
+    )
     stream = _audio_stream_url(url)
     chunk_dir = jdir / "chunks"
     chunk_dir.mkdir(parents=True, exist_ok=True)
@@ -367,7 +430,9 @@ def _process_url_live(job_id: str, url: str, jdir: Path, source_lang: str, targe
                 job_id,
                 cues=list(cues),
                 detected_language=detected,
-                duration=offset,
+                duration=src_dur or offset,
+                source_duration=src_dur,
+                heard=offset,
                 progress=min(90, 12 + len(cues) * 2),
                 message="Translating…",
                 status="working",
@@ -407,6 +472,8 @@ def _process_url_live(job_id: str, url: str, jdir: Path, source_lang: str, targe
         vtt=vtt,
         detected_language=detected,
         duration=offset,
+        source_duration=src_dur or offset,
+        heard=offset,
         error=None,
     )
 
@@ -633,7 +700,7 @@ def _process_job(job_id: str) -> None:
         duration = _probe_duration(media_path)
         if duration and duration > MAX_DURATION_SEC:
             raise RuntimeError(f"Video too long ({int(duration)}s). Max is {MAX_DURATION_SEC}s for now.")
-        _set(job_id, duration=duration, progress=20, message="Translating…")
+        _set(job_id, duration=duration, source_duration=duration, heard=0, progress=20, message="Translating…")
 
         wav = jdir / "audio.wav"
         if media_path.suffix.lower() == ".wav":

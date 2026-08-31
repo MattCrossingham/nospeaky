@@ -6,7 +6,7 @@
 <title>NoSpeaky — Live translator</title>
 <meta name="description" content="Paste a video link. Pick a language. Captions while it plays.">
 <meta name="theme-color" content="#0a0b0f">
-<link rel="stylesheet" href="css/site.css">
+<link rel="stylesheet" href="css/site.css?v=5">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%237cffa1'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -79,12 +79,17 @@
     </form>
 
     <section class="player-section" id="player-section" hidden>
-      <div class="player-wrap">
+      <div class="player-wrap" id="player-wrap">
         <iframe id="embed" hidden title="Video" allow="autoplay; fullscreen" allowfullscreen></iframe>
         <video id="player" controls playsinline webkit-playsinline></video>
         <div class="cue-overlay" id="cue-overlay" aria-live="polite"></div>
+        <div class="wait-overlay" id="wait-overlay" hidden>
+          <p class="wait-label" id="wait-label">Translating</p>
+          <p class="wait-time" id="wait-time">…</p>
+          <p class="wait-hint" id="wait-hint">Subtitles start when this hits zero.</p>
+        </div>
       </div>
-      <p class="live-sub" id="live-sub" aria-live="polite"></p>
+      <p class="live-sub" id="live-sub" hidden aria-live="polite"></p>
 
       <div class="player-meta">
         <div class="progress-block">
@@ -109,7 +114,7 @@
     <a href="privacy.html">Privacy</a>
   </footer>
 
-  <script src="js/config.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/config.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>

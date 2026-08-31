@@ -27,10 +27,15 @@
   const status = document.getElementById("form-status");
 
   const playerSection = document.getElementById("player-section");
+  const playerWrap = document.getElementById("player-wrap");
   const player = document.getElementById("player");
   const embed = document.getElementById("embed");
   const cueOverlay = document.getElementById("cue-overlay");
   const liveSub = document.getElementById("live-sub");
+  const waitOverlay = document.getElementById("wait-overlay");
+  const waitLabel = document.getElementById("wait-label");
+  const waitTime = document.getElementById("wait-time");
+  const waitHint = document.getElementById("wait-hint");
   const cueList = document.getElementById("cue-list");
   const jobState = document.getElementById("job-state");
   const jobDetail = document.getElementById("job-detail");
@@ -47,6 +52,10 @@
   let embedTime = 0;
   let hasEmbedTime = false;
   let overlayRaf = 0;
+  let waiting = false;
+  let playingSubs = false;
+  let etaUntil = 0;
+  let waitTick = 0;
 
   function embedFromLink(u) {
     if (!u) return "";
@@ -80,7 +89,54 @@
     embed.removeAttribute("hidden");
     player.hidden = true;
     player.setAttribute("hidden", "");
-    if (cueOverlay) cueOverlay.style.display = "none";
+    if (playerWrap) playerWrap.classList.add("has-embed");
+    if (cueOverlay) cueOverlay.style.display = "";
+  }
+
+  function fmtLeft(sec) {
+    const n = Math.max(0, Math.ceil(sec || 0));
+    const m = Math.floor(n / 60);
+    const s = n % 60;
+    return m + ":" + String(s).padStart(2, "0");
+  }
+
+  function paintWait() {
+    if (!waitOverlay || waitOverlay.hidden) return;
+    if (!etaUntil) {
+      if (waitTime) waitTime.textContent = "…";
+      if (waitHint) waitHint.textContent = "Working out how long this will take.";
+      return;
+    }
+    const left = (etaUntil - Date.now()) / 1000;
+    if (waitTime) waitTime.textContent = fmtLeft(left);
+    if (waitHint) {
+      waitHint.textContent = left > 0
+        ? "Subtitles start when this hits zero."
+        : "Almost there…";
+    }
+  }
+
+  function showWait(etaSec, label) {
+    waiting = true;
+    playingSubs = false;
+    playerSection.hidden = false;
+    if (waitOverlay) waitOverlay.hidden = false;
+    if (waitLabel) waitLabel.textContent = label || "Translating";
+    if (typeof etaSec === "number" && Number.isFinite(etaSec) && etaSec >= 0) {
+      etaUntil = Date.now() + etaSec * 1000;
+    }
+    if (cueOverlay) cueOverlay.textContent = "";
+    paintWait();
+    if (!waitTick) waitTick = setInterval(paintWait, 250);
+  }
+
+  function hideWait() {
+    waiting = false;
+    if (waitOverlay) waitOverlay.hidden = true;
+    if (waitTick) {
+      clearInterval(waitTick);
+      waitTick = 0;
+    }
   }
 
   function apiHeaders(extra) {
@@ -254,8 +310,8 @@
   }
 
   function syncOverlay() {
-    if (!cues.length) {
-      cueOverlay.textContent = "";
+    if (!playingSubs || !cues.length) {
+      if (cueOverlay) cueOverlay.textContent = "";
       if (liveSub) liveSub.textContent = "";
       return;
     }
@@ -404,12 +460,11 @@
     const file = fileInput.files && fileInput.files[0];
     startBtn.disabled = true;
     playerSection.hidden = false;
-    const link = urlInput.value.trim();
-    showEmbed(embedFromLink(link));
+    showWait(null, "Translating");
     jobState.textContent = "Working";
     jobDetail.textContent = "Sending job…";
     progressBar.style.width = "5%";
-    setStatus("Starting…", "ok");
+    setStatus("Translating…", "ok");
 
     try {
       const body = new FormData();
@@ -431,6 +486,7 @@
       const job = await res.json();
       await pollJob(job.id || job.job_id);
     } catch (err) {
+      hideWait();
       jobState.textContent = "Failed";
       jobDetail.textContent = err.message || String(err);
       setStatus(`Failed: ${err.message || err}`, "err");
@@ -438,6 +494,22 @@
       startBtn.disabled = false;
     }
   });
+
+  async function startPlayback(job, id) {
+    hideWait();
+    playingSubs = true;
+    if (Array.isArray(job.cues)) applyCues(job.cues);
+    const link = urlInput.value.trim();
+    const eu = job.embed_url || embedFromLink(link);
+    if (eu) {
+      showEmbed(eu);
+    } else {
+      if (job.media_url && !(fileInput.files && fileInput.files[0])) {
+        await loadRemoteMedia(id);
+      }
+      player.play().catch(() => {});
+    }
+  }
 
   async function pollJob(id) {
     for (;;) {
@@ -449,21 +521,21 @@
       jobState.textContent = job.status || "Working";
       jobDetail.textContent = job.message || "";
 
-      if (job.media_url && !(fileInput.files && fileInput.files[0]) && !job.embed_url) {
-        try {
-          await loadRemoteMedia(id);
-        } catch (_) {
-          // media may not be ready yet during download
+      if (waiting) {
+        if (typeof job.eta_sec === "number" && Number.isFinite(job.eta_sec)) {
+          etaUntil = Date.now() + Math.max(0, job.eta_sec) * 1000;
+        } else if (typeof job.duration === "number" && job.duration > 0) {
+          const left = job.duration * Math.max(0, 1 - progress / 100);
+          etaUntil = Date.now() + left * 1000;
         }
-      }
-
-      if (job.embed_url && embed) {
-        showEmbed(job.embed_url);
+        paintWait();
       }
 
       if (Array.isArray(job.cues) && job.cues.length) {
-        applyCues(job.cues);
-        jobState.textContent = "Translating";
+        cues = job.cues;
+        srtText = job.srt || buildSrt(cues);
+        vttText = job.vtt || buildVtt(cues);
+        if (!waiting) applyCues(job.cues);
       }
       if (job.srt) {
         srtText = job.srt;
@@ -481,15 +553,13 @@
         if (job.vtt) vttText = job.vtt;
         btnSrt.disabled = !srtText;
         btnVtt.disabled = !vttText;
-        if (job.media_url && !(fileInput.files && fileInput.files[0]) && !job.embed_url) {
-          await loadRemoteMedia(id);
-        }
         progressBar.style.width = "100%";
-        jobState.textContent = "Ready";
+        await startPlayback(job, id);
+        jobState.textContent = "Playing";
         const n = (job.cues && job.cues.length) || 0;
         setStatus(
           n
-            ? `Ready — ${n} lines. Play the video or download .srt.`
+            ? `Playing with ${n} lines on the video.`
             : "Ready, but no speech was detected.",
           n ? "ok" : undefined
         );
