@@ -336,6 +336,47 @@ def _fetch_url(url: str, out_dir: Path) -> Path:
     return candidates[0]
 
 
+def _fetch_playable_video(url: str, out_dir: Path) -> Path:
+    """Small picture for the HTML5 player. Never 1080p."""
+    if not shutil.which("yt-dlp"):
+        raise RuntimeError("yt-dlp not found — required for URL jobs")
+    if not _is_safe_public_url(url):
+        raise RuntimeError("URL not allowed")
+    out = out_dir / "play.mp4"
+    r = _run(
+        [
+            "yt-dlp",
+            "--js-runtimes",
+            "deno",
+            "--impersonate",
+            "firefox",
+            "--no-playlist",
+            "-f",
+            "best[height<=360][ext=mp4]/best[height<=360]/worst[ext=mp4]/worst",
+            "--merge-output-format",
+            "mp4",
+            "-o",
+            str(out),
+            "--max-filesize",
+            "80M",
+            url,
+        ],
+        timeout=300,
+    )
+    if r.returncode != 0 or not out.exists() or out.stat().st_size < 1000:
+        raise RuntimeError(f"playable video failed: {(r.stderr or r.stdout)[-400:]}")
+    return out
+
+
+def _try_attach_playable(job_id: str, url: str, jdir: Path) -> None:
+    try:
+        _set(job_id, progress=92, message="Getting the video…")
+        vid = _fetch_playable_video(url, jdir)
+        _set(job_id, media_path=str(vid), media_name=vid.name)
+    except Exception:
+        return
+
+
 def _audio_stream_url(url: str) -> str:
     if not shutil.which("yt-dlp"):
         raise RuntimeError("yt-dlp not found — required for URL jobs")
@@ -470,6 +511,7 @@ def _process_url_live(job_id: str, url: str, jdir: Path, source_lang: str, targe
     vtt = _cues_to_vtt(cues)
     (jdir / "captions.srt").write_text(srt, encoding="utf-8")
     (jdir / "captions.vtt").write_text(vtt, encoding="utf-8")
+    _try_attach_playable(job_id, url, jdir)
     _set(
         job_id,
         status="ready",
@@ -750,6 +792,8 @@ def _process_pro(job_id: str) -> None:
     vtt = _cues_to_vtt(cues)
     (jdir / "captions.srt").write_text(srt, encoding="utf-8")
     (jdir / "captions.vtt").write_text(vtt, encoding="utf-8")
+    if job.get("source_url"):
+        _try_attach_playable(job_id, job["source_url"], jdir)
     _set(
         job_id,
         status="ready",

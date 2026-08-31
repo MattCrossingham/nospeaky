@@ -59,6 +59,7 @@
   let playingSubs = false;
   let etaUntil = 0;
   let waitTick = 0;
+  let nativeTrack = false;
 
   function embedFromLink(u) {
     if (!u) return "";
@@ -276,7 +277,8 @@
     });
   }
 
-  function applyCues(list) {
+  function applyCues(list, native) {
+    nativeTrack = Boolean(native);
     cues = list || [];
     srtText = buildSrt(cues);
     vttText = buildVtt(cues);
@@ -291,16 +293,28 @@
       const track = document.createElement("track");
       track.kind = "subtitles";
       track.label = targetLang.options[targetLang.selectedIndex].text;
-      track.srclang = targetLang.value;
+      track.srclang = targetLang.value === "same" ? "und" : targetLang.value;
       track.src = trackUrl;
       track.default = true;
       player.appendChild(track);
       try {
         if (player.textTracks && player.textTracks[0]) {
-          player.textTracks[0].mode = "hidden";
+          player.textTracks[0].mode = nativeTrack ? "showing" : "hidden";
         }
       } catch (_) { /* ignore */ }
     }
+  }
+
+  function showHtml5() {
+    if (embed) {
+      embed.hidden = true;
+      embed.setAttribute("hidden", "");
+      embed.removeAttribute("src");
+    }
+    player.hidden = false;
+    player.removeAttribute("hidden");
+    if (playerWrap) playerWrap.classList.remove("has-embed");
+    if (cueOverlay) cueOverlay.style.display = nativeTrack ? "none" : "";
   }
 
   function downloadText(filename, text, mime) {
@@ -313,10 +327,14 @@
   }
 
   function syncOverlay() {
-    if (!playingSubs || !cues.length) {
-      if (cueOverlay) cueOverlay.textContent = "";
-      if (liveSub) liveSub.textContent = "";
-      return;
+    if (nativeTrack || !playingSubs || !cues.length) {
+      if (nativeTrack && cueOverlay) cueOverlay.textContent = "";
+      if (!playingSubs || !cues.length) {
+        if (cueOverlay) cueOverlay.textContent = "";
+        if (liveSub) liveSub.textContent = "";
+      }
+      if (nativeTrack) return;
+      if (!playingSubs || !cues.length) return;
     }
     const usingEmbed = embed && !embed.hidden;
     let t = player.currentTime || 0;
@@ -527,17 +545,25 @@
   async function startPlayback(job, id) {
     hideWait();
     playingSubs = true;
-    if (Array.isArray(job.cues)) applyCues(job.cues);
+    const hasFile = Boolean(fileInput.files && fileInput.files[0]);
+    if (job.media_url || hasFile) {
+      try {
+        if (job.media_url && !hasFile) await loadRemoteMedia(id);
+        nativeTrack = true;
+        showHtml5();
+        applyCues(job.cues || cues, true);
+        player.play().catch(() => {});
+        return;
+      } catch (_) {
+        nativeTrack = false;
+      }
+    }
+    applyCues(job.cues || cues, false);
+    if (cueOverlay) cueOverlay.style.display = "";
     const link = urlInput.value.trim();
     const eu = job.embed_url || embedFromLink(link);
-    if (eu) {
-      showEmbed(eu);
-    } else {
-      if (job.media_url && !(fileInput.files && fileInput.files[0])) {
-        await loadRemoteMedia(id);
-      }
-      player.play().catch(() => {});
-    }
+    if (eu) showEmbed(eu);
+    else player.play().catch(() => {});
   }
 
   async function pollJob(id) {
