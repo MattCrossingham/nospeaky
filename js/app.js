@@ -30,6 +30,7 @@
   const player = document.getElementById("player");
   const embed = document.getElementById("embed");
   const cueOverlay = document.getElementById("cue-overlay");
+  const liveSub = document.getElementById("live-sub");
   const cueList = document.getElementById("cue-list");
   const jobState = document.getElementById("job-state");
   const jobDetail = document.getElementById("job-detail");
@@ -218,6 +219,7 @@
   function syncOverlay() {
     if (!cues.length) {
       cueOverlay.textContent = "";
+      if (liveSub) liveSub.textContent = "";
       return;
     }
     const usingEmbed = embed && !embed.hidden;
@@ -244,6 +246,7 @@
       }
     }
     cueOverlay.textContent = active ? active.text : "";
+    if (liveSub) liveSub.textContent = active ? active.text : "";
     [...cueList.children].forEach((li, i) => {
       li.classList.toggle("active", i === activeIdx);
     });
