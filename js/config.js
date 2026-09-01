@@ -1,5 +1,5 @@
-/* Cloud engine. Not the house. */
+/* Offline. Engine not public. */
 window.NOSPEAKY_CONFIG = {
-  apiBase: "https://api.nospeaky.ai",
-  apiKey: "56fdc263379309b33b336385c160f56abf58a5859dc46dc6"
+  apiBase: "",
+  apiKey: ""
 };
