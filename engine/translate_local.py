@@ -45,6 +45,7 @@ _ISO3 = {
     "urd": "ur",
     "vie": "vi",
     "yue": "zh",
+    "tlh": "tlh",
     "zho": "zh",
 }
 
