@@ -6,7 +6,7 @@
 <title>NoSpeaky — Live translator</title>
 <meta name="description" content="Paste a video link. Pick a language. Captions while it plays.">
 <meta name="theme-color" content="#0a0b0f">
-<link rel="stylesheet" href="css/site.css?v=13">
+<link rel="stylesheet" href="css/site.css?v=14">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%237cffa1'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -66,9 +66,12 @@
     <section class="player-section" id="player-section" hidden>
       <div class="player-wrap" id="player-wrap">
         <div id="embed-host" class="embed-host" hidden></div>
-        <iframe id="embed" hidden title="Video" allow="autoplay; fullscreen" allowfullscreen></iframe>
-        <video id="player" controls playsinline webkit-playsinline></video>
+        <iframe id="embed" hidden title="Video" allow="autoplay"></iframe>
+        <video id="player" controls playsinline webkit-playsinline controlslist="nofullscreen"></video>
         <div class="cue-overlay" id="cue-overlay" aria-live="polite"></div>
+        <button type="button" class="fs-btn" id="fs-btn" aria-label="Full screen" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5h2zm10 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
         <div class="wait-overlay" id="wait-overlay" hidden>
           <p class="wait-label" id="wait-label">Translating</p>
           <p class="wait-time" id="wait-time">…</p>
@@ -104,6 +107,6 @@
 
   <script src="js/config.js?v=16"></script>
   <script src="js/langs.js?v=1"></script>
-  <script src="js/app.js?v=19"></script>
+  <script src="js/app.js?v=20"></script>
 </body>
 </html>
