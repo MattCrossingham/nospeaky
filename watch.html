@@ -6,7 +6,7 @@
 <title>NoSpeaky — Live translator</title>
 <meta name="description" content="Paste a video link. Pick a language. Captions while it plays.">
 <meta name="theme-color" content="#0a0b0f">
-<link rel="stylesheet" href="css/site.css?v=5">
+<link rel="stylesheet" href="css/site.css?v=6">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%237cffa1'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -27,12 +27,14 @@
       <p class="lede">
         Paste a video link. Pick the language you want. Captions while it plays.
       </p>
+      <p class="lang-line">Spoken and read-it-in: English, Chinese, Japanese, Korean, Spanish, French, German, Portuguese, Hindi, Arabic.</p>
     </header>
 
     <form id="job-form" class="panel" autocomplete="off">
       <label class="field">
         <span class="label">Video link</span>
-        <input id="url" name="url" type="url" inputmode="url" placeholder="https://…" required>
+        <input id="url" name="url" type="url" inputmode="url" placeholder="https://dai.ly/… or a direct .mp4" required>
+        <span class="hint" id="url-trust">We don’t keep your videos. Public Dailymotion or a direct file — YouTube often fails.</span>
       </label>
 
       <div class="row-2">
@@ -64,6 +66,9 @@
             <option value="es">Spanish</option>
             <option value="fr">French</option>
             <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="hi">Hindi</option>
+            <option value="ar">Arabic</option>
           </select>
         </label>
       </div>
@@ -89,6 +94,10 @@
           <p class="wait-label" id="wait-label">Translating</p>
           <p class="wait-time" id="wait-time">…</p>
           <p class="wait-hint" id="wait-hint">Subtitles start when this hits zero.</p>
+        </div>
+        <div class="fail-overlay" id="fail-overlay" hidden>
+          <p class="fail-title" id="fail-title">Didn’t work</p>
+          <p class="fail-body" id="fail-body">Try a Dailymotion or .mp4 link.</p>
         </div>
       </div>
       <p class="live-sub" id="live-sub" hidden aria-live="polite"></p>
@@ -116,7 +125,7 @@
     <a href="privacy.html">Privacy</a>
   </footer>
 
-  <script src="js/config.js?v=8"></script>
-  <script src="js/app.js?v=8"></script>
+  <script src="js/config.js?v=9"></script>
+  <script src="js/app.js?v=9"></script>
 </body>
 </html>
