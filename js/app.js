@@ -75,6 +75,26 @@
     return "";
   }
 
+  let embedPing = 0;
+
+  function pingEmbedTime() {
+    if (!embed || embed.hidden || !embed.contentWindow) return;
+    try {
+      embed.contentWindow.postMessage(JSON.stringify({ command: "time" }), "*");
+    } catch (_) { /* ignore */ }
+  }
+
+  function seekEmbed(sec) {
+    const t = Number(sec);
+    if (!Number.isFinite(t)) return;
+    embedTime = t;
+    hasEmbedTime = true;
+    if (!embed || embed.hidden || !embed.contentWindow) return;
+    try {
+      embed.contentWindow.postMessage(JSON.stringify({ command: "seek", parameters: [t] }), "*");
+    } catch (_) { /* ignore */ }
+  }
+
   function showEmbed(eu) {
     if (!embed || !eu) return;
     if (embed.src !== eu) {
@@ -84,14 +104,14 @@
       hasEmbedTime = false;
       embed.onload = () => {
         setTimeout(() => {
-          if (!hasEmbedTime) embedClock = Date.now() / 1000;
           try {
             embed.contentWindow.postMessage(
-              '{"command":"subscribe","parameters":["timeupdate","playing","progress"]}',
+              '{"command":"subscribe","parameters":["timeupdate","playing","progress","seeked","seeking"]}',
               "*"
             );
           } catch (_) { /* ignore */ }
-        }, 500);
+          pingEmbedTime();
+        }, 400);
       };
     }
     embed.hidden = false;
@@ -100,6 +120,8 @@
     player.setAttribute("hidden", "");
     if (playerWrap) playerWrap.classList.add("has-embed");
     if (cueOverlay) cueOverlay.style.display = "";
+    if (embedPing) clearInterval(embedPing);
+    embedPing = setInterval(pingEmbedTime, 250);
   }
 
   function fmtLeft(sec) {
@@ -322,8 +344,10 @@
       li.dataset.idx = String(idx);
       li.innerHTML = `<span class="t">${fmtTime(c.start)}</span><span>${escapeHtml(c.text)}</span>`;
       li.addEventListener("click", () => {
+        seekEmbed(c.start);
         player.currentTime = c.start;
         player.play().catch(() => {});
+        syncOverlay();
       });
       cueList.appendChild(li);
     });
@@ -358,6 +382,10 @@
   }
 
   function showHtml5() {
+    if (embedPing) {
+      clearInterval(embedPing);
+      embedPing = 0;
+    }
     if (embed) {
       embed.hidden = true;
       embed.setAttribute("hidden", "");
@@ -387,16 +415,14 @@
     const usingEmbed = embed && !embed.hidden;
     let t = player.currentTime || 0;
     if (usingEmbed) {
-      if (hasEmbedTime) t = embedTime;
-      else if (embedClock) t = Date.now() / 1000 - embedClock;
-      else t = -1;
+      t = hasEmbedTime ? embedTime : -1;
     }
     let active = null;
     let activeIdx = -1;
     if (t >= 0) {
-      for (let i = 0; i < cues.length; i++) {
+      for (let i = cues.length - 1; i >= 0; i--) {
         const c = cues[i];
-        if (t >= c.start && t <= c.end + 0.4) {
+        if (t >= c.start && t <= (c.end + 0.4)) {
           active = c;
           activeIdx = i;
           break;
@@ -416,11 +442,12 @@
       try { d = JSON.parse(d); } catch { return; }
     }
     if (!d || typeof d !== "object") return;
-    const t =
-      (typeof d.time === "number" && d.time) ||
-      (typeof d.currentTime === "number" && d.currentTime) ||
-      (d.info && typeof d.info.currentTime === "number" && d.info.currentTime);
-    if (typeof t === "number" && Number.isFinite(t)) {
+    let t = null;
+    if (typeof d.time === "number") t = d.time;
+    else if (typeof d.currentTime === "number") t = d.currentTime;
+    else if (d.info && typeof d.info.currentTime === "number") t = d.info.currentTime;
+    else if (Array.isArray(d.parameters) && typeof d.parameters[0] === "number") t = d.parameters[0];
+    if (typeof t === "number" && Number.isFinite(t) && t >= 0) {
       embedTime = t;
       hasEmbedTime = true;
     }
