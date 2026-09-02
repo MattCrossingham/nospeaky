@@ -2,6 +2,10 @@
 .venv/
 engine/data/
 engine/.api_key
+.env
+*.env
+!engine/.env.example
+engine/.env
 __pycache__/
 *.pyc
 .DS_Store
