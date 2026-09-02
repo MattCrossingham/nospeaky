@@ -1,0 +1,24 @@
+# Cloud compose — engine + optional Redis.
+# File queue works without Redis. Set REDIS_URL so extra worker boxes can pull later.
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy noeviction --save 60 1
+    volumes:
+      - /opt/nospeaky/data/redis:/data
+  engine:
+    build:
+      context: /opt/nospeaky/repo
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - /opt/nospeaky/.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - /opt/nospeaky/data:/app/engine/data
+    depends_on:
+      - redis

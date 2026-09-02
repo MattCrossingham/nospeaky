@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from engine import queue as jobq
 from engine.scribe import iso_lang, transcribe_file, words_to_cues
 from engine.translate_local import iso2 as _iso2
 from engine.translate_local import translate_lines as _local_translate
@@ -144,6 +145,8 @@ def _public(job: dict[str, Any]) -> dict[str, Any]:
         "eta_sec": _eta_sec(job),
         "heard": job.get("heard"),
         "tier": job.get("tier") or "free",
+        "queue_pos": job.get("queue_pos") or 0,
+        "queue_len": job.get("queue_len") or 0,
     }
     if job.get("media_name"):
         out["media_url"] = f"/v1/jobs/{job['id']}/media"
@@ -161,6 +164,9 @@ def _eta_sec(job: dict[str, Any]) -> int:
     st = str(job.get("status") or "").lower()
     if st in {"ready", "done", "completed", "failed", "error"}:
         return 0
+    pos = int(job.get("queue_pos") or 0)
+    if st == "queued" and pos > 1:
+        return int(pos * 75)
     now = time.time()
     created = float(job.get("created_at") or now)
     elapsed = max(0.0, now - created)
@@ -890,49 +896,63 @@ def _process_job(job_id: str) -> None:
         )
 
 
-def _start_thread(job_id: str) -> None:
-    global _worker_busy
+def _stamp_queue(job_id: str) -> None:
     job = _jobs.get(job_id) or {}
-    if (job.get("tier") or "free") == "pro":
+    tier = job.get("tier") or "free"
+    pos = jobq.position(job_id, tier)
+    n = jobq.qlen(tier)
+    if job:
+        job["queue_pos"] = pos
+        job["queue_len"] = n
+        if pos > 1:
+            job["status"] = "queued"
+            job["message"] = f"Number {pos} in the queue"
+
+
+def _start_thread(job_id: str) -> None:
+    job = _jobs.get(job_id) or {}
+    tier = job.get("tier") or "free"
+    jobq.enqueue(job_id, tier)
+    _stamp_queue(job_id)
+    _kick_worker(tier)
+
+
+def _kick_worker(tier: str = "free") -> None:
+    global _worker_busy
+    if (tier or "free") == "pro":
+        job_id = jobq.claim("pro")
+        if not job_id:
+            return
 
         def run_pro() -> None:
-            _set(job_id, status="queued", message="Waiting for a Pro slot…")
+            _set(job_id, status="queued", message="Waiting for a Pro slot…", queue_pos=0)
             _pro_sema.acquire()
             try:
                 _process_job(job_id)
             finally:
                 _pro_sema.release()
+                _kick_worker("pro")
 
         threading.Thread(target=run_pro, daemon=True).start()
         return
-    with _lock:
-        _job_q.append(job_id)
-        if _worker_busy:
-            job = _jobs.get(job_id)
-            if job:
-                job["message"] = "Waiting for a slot…"
-                job["status"] = "queued"
-    _kick_worker()
 
-
-def _kick_worker() -> None:
-    global _worker_busy
     with _lock:
         if _worker_busy:
             return
-        if not _job_q:
+        job_id = jobq.claim("free")
+        if not job_id:
             return
-        job_id = _job_q.pop(0)
         _worker_busy = True
 
     def run() -> None:
         global _worker_busy
         try:
+            _set(job_id, status="working", message="Translating…", queue_pos=0)
             _process_job(job_id)
         finally:
             with _lock:
                 _worker_busy = False
-            _kick_worker()
+            _kick_worker("free")
 
     threading.Thread(target=run, daemon=True).start()
 
@@ -977,6 +997,7 @@ def health() -> dict[str, Any]:
         "pro_ready": bool(ELEVENLABS_API_KEY),
         "pro_max_duration_sec": PRO_MAX_DURATION_SEC,
         "pro_locked": True,
+        "queue": jobq.snapshot("free"),
     }
 
 
@@ -1068,6 +1089,8 @@ def get_job(job_id: str, _: None = Depends(_check_key)) -> dict[str, Any]:
                 _jobs[job_id] = job
         else:
             raise HTTPException(404, "job not found")
+    if str(job.get("status") or "") == "queued":
+        _stamp_queue(job["id"])
     return _public(job)
 
 
@@ -1111,11 +1134,14 @@ def _startup() -> None:
         try:
             job = json.loads(meta.read_text(encoding="utf-8"))
             jid = job.get("id") or meta.parent.name
-            if job.get("status") in ("queued", "working"):
+            st = job.get("status")
+            if st == "working":
                 job["status"] = "failed"
                 job["error"] = "Server restarted during job"
                 job["message"] = "Failed"
             with _lock:
                 _jobs[jid] = job
+            if st == "queued":
+                _start_thread(jid)
         except Exception:
             continue
