@@ -101,9 +101,16 @@
   const embedHost = document.getElementById("embed-host");
   let dmPlayer = null;
   let dmVideoId = "";
+  let ytPlayer = null;
+  let ytVideoId = "";
   let embedPing = 0;
   let embedPlaying = false;
   let lastTick = 0;
+
+  function ytId(u) {
+    const m = (u || "").match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
+    return m ? m[1] : "";
+  }
 
   function daiId(u) {
     const m = (u || "").match(/(?:dai\.ly\/|dailymotion\.com\/video\/)([A-Za-z0-9]+)/i);
@@ -176,6 +183,13 @@
   }
 
   function pingEmbedTime() {
+    if (ytPlayer && typeof ytPlayer.getCurrentTime === "function") {
+      try {
+        const t = ytPlayer.getCurrentTime();
+        if (typeof t === "number") setPlayhead(t);
+      } catch (_) { /* ignore */ }
+      return;
+    }
     if (dmPlayer) {
       try {
         if (typeof dmPlayer.getState === "function") {
@@ -203,6 +217,10 @@
     const t = Number(sec);
     if (!Number.isFinite(t)) return;
     setPlayhead(t);
+    if (ytPlayer && typeof ytPlayer.seekTo === "function") {
+      try { ytPlayer.seekTo(t, true); } catch (_) { /* ignore */ }
+      return;
+    }
     if (dmPlayer && typeof dmPlayer.seek === "function") {
       try { dmPlayer.seek(t); } catch (_) { /* ignore */ }
       return;
@@ -213,7 +231,16 @@
     } catch (_) { /* ignore */ }
   }
 
+  function destroyYt() {
+    if (ytPlayer && typeof ytPlayer.destroy === "function") {
+      try { ytPlayer.destroy(); } catch (_) { /* ignore */ }
+    }
+    ytPlayer = null;
+    ytVideoId = "";
+  }
+
   function destroyDm() {
+    destroyYt();
     if (dmPlayer && typeof dmPlayer.destroy === "function") {
       try { dmPlayer.destroy(); } catch (_) { /* ignore */ }
     }
@@ -265,7 +292,86 @@
     embedPing = setInterval(pingEmbedTime, 200);
   }
 
+  function loadYtApi() {
+    return new Promise((resolve, reject) => {
+      if (window.YT && window.YT.Player) {
+        resolve(window.YT);
+        return;
+      }
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = function () {
+        if (typeof prev === "function") prev();
+        resolve(window.YT);
+      };
+      if (document.querySelector("script[data-ns-yt]")) return;
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      s.async = true;
+      s.dataset.nsYt = "1";
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  function showYouTube(id) {
+    destroyDm();
+    if (embed) {
+      embed.hidden = true;
+      embed.removeAttribute("src");
+    }
+    player.hidden = true;
+    player.setAttribute("hidden", "");
+    if (embedHost) {
+      embedHost.hidden = false;
+      embedHost.removeAttribute("hidden");
+      embedHost.innerHTML = "";
+    }
+    if (playerWrap) playerWrap.classList.add("has-embed");
+    if (cueOverlay) cueOverlay.style.display = "";
+    embedTime = 0;
+    hasEmbedTime = true;
+    embedPlaying = true;
+    lastTick = performance.now();
+    ytVideoId = id;
+    loadYtApi().then((YT) => {
+      if (!YT || !YT.Player || ytVideoId !== id) return;
+      ytPlayer = new YT.Player("embed-host", {
+        videoId: id,
+        width: "100%",
+        height: "100%",
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, origin: location.origin },
+        events: {
+          onReady: (e) => {
+            embedPlaying = true;
+            setPlayhead(0);
+            try { e.target.playVideo(); } catch (_) { /* ignore */ }
+          },
+          onStateChange: (e) => {
+            const st = window.YT && window.YT.PlayerState;
+            if (!st) return;
+            if (e.data === st.PLAYING) embedPlaying = true;
+            if (e.data === st.PAUSED || e.data === st.ENDED) embedPlaying = false;
+            try { setPlayhead(e.target.getCurrentTime()); } catch (_) { /* ignore */ }
+          }
+        }
+      });
+    }).catch(() => {
+      if (embed) {
+        embed.src = "https://www.youtube.com/embed/" + id + "?autoplay=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin);
+        embed.hidden = false;
+        embed.removeAttribute("hidden");
+      }
+    });
+    if (embedPing) clearInterval(embedPing);
+    embedPing = setInterval(pingEmbedTime, 200);
+  }
+
   function showEmbed(eu) {
+    const yid = ytId(urlInput && urlInput.value) || ytId(eu);
+    if (yid) {
+      showYouTube(yid);
+      return;
+    }
     const id = daiId(urlInput && urlInput.value) || daiId(eu);
     if (id) {
       showDai(id);
@@ -333,7 +439,7 @@
       return { title: "Translator is down", body: "Wait a minute and try again." };
     }
     if (low.includes("youtube") || low.includes("sign in") || low.includes("bot") || low.includes("confirm you’re not") || low.includes("confirm you're not")) {
-      return { title: "That host blocked us", body: "YouTube often fails. Use a Dailymotion link (dai.ly) or a direct .mp4." };
+      return { title: "YouTube blocked this clip", body: "Try another public YouTube link, Dailymotion, or a direct .mp4." };
     }
     if (low.includes("geo") || low.includes("region") || low.includes("not available") || low.includes("unavailable")) {
       return { title: "This video is locked", body: "Region-locked or private clips won’t work. Need a public link." };
@@ -589,7 +695,7 @@
       if (liveSub) liveSub.textContent = "";
       return;
     }
-    const usingEmbed = Boolean(dmPlayer) || (embedHost && !embedHost.hidden) || (embed && !embed.hidden);
+    const usingEmbed = Boolean(ytPlayer) || Boolean(dmPlayer) || (embedHost && !embedHost.hidden) || (embed && !embed.hidden);
     let t = player.currentTime || 0;
     if (usingEmbed) {
       t = hasEmbedTime ? embedTime : -1;
