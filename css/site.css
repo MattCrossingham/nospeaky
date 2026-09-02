@@ -58,14 +58,17 @@ strong { font-weight: 700; color: var(--text); }
 }
 
 .brand {
-  color: var(--text);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
   text-decoration: none;
+  line-height: 0;
 }
-.brand .dot { color: var(--accent); }
-.brand:hover { text-decoration: none; opacity: 0.9; }
+.brand img {
+  display: block;
+  height: 40px;
+  width: auto;
+}
+.brand:hover { text-decoration: none; opacity: 0.92; }
 
 nav { display: flex; gap: 18px; flex-wrap: wrap; }
 nav a {
@@ -733,6 +736,7 @@ body.player-fs {
   .actions { flex-direction: column; align-items: stretch; }
   .btn { width: 100%; }
   .fs-btn { width: 40px; height: 40px; }
+  .brand img { height: 32px; }
   .cue-overlay {
     max-width: min(98%, 56rem);
     font-size: clamp(0.95rem, 3.6vw, 1.2rem);
