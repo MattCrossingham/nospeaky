@@ -304,27 +304,17 @@ a.btn.primary:hover, a.btn.ghost:hover { text-decoration: none; }
 body.player-fs {
   overflow: hidden;
 }
-body.player-fs::before {
-  content: "";
+.player-wrap.is-fs {
   position: fixed;
   inset: 0;
-  background: #000;
-  z-index: 9998;
-}
-.player-wrap.is-fs,
-.player-wrap:fullscreen,
-.player-wrap:-webkit-full-screen {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(100vw, calc(100dvh * 16 / 9));
-  height: min(100dvh, calc(100vw * 9 / 16));
-  aspect-ratio: 16 / 9;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  aspect-ratio: auto;
+  transform: none;
   border-radius: 0;
   border: 0;
   z-index: 9999;
-  max-width: none;
 }
 .fs-btn {
   position: absolute;
