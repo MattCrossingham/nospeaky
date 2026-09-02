@@ -126,6 +126,29 @@
     return "";
   }
 
+  function cleanCue(text) {
+    const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return "";
+    const out = [];
+    let prev = "";
+    let n = 0;
+    words.forEach((w) => {
+      const key = w.toLowerCase().replace(/[.,!?;:"']+/g, "");
+      if (key === prev) {
+        n += 1;
+        if (n <= 2) out.push(w);
+      } else {
+        prev = key;
+        n = 1;
+        out.push(w);
+      }
+    });
+    const uniq = new Set(out.map((w) => w.toLowerCase().replace(/[.,!?;:"']+/g, "")));
+    if (uniq.size <= 1 && out.length >= 4) return "";
+    if (out.length >= 12 && uniq.size <= 2) return "";
+    return out.join(" ");
+  }
+
   function setPlayhead(sec) {
     const t = Number(sec);
     if (!Number.isFinite(t) || t < 0) return;
@@ -712,7 +735,7 @@
         }
       }
     }
-    cueOverlay.textContent = active ? active.text : "";
+    cueOverlay.textContent = active ? cleanCue(active.text) : "";
     if (liveSub) liveSub.textContent = active ? active.text : "";
     if (cueList) {
       [...cueList.children].forEach((li, i) => {
@@ -889,7 +912,9 @@
         }
         if (msg.type === "cue" && msg.text) {
           got = true;
-          cues.push({ start: Number(msg.start) || 0, end: Number(msg.end) || 0, text: msg.text });
+          const txt = cleanCue(msg.text);
+          if (!txt) return;
+          cues.push({ start: Number(msg.start) || 0, end: Number(msg.end) || 0, text: txt });
           applyCues(cues, false);
           if (cues.length === 1) {
             hideWait();
