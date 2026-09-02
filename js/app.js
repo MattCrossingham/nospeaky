@@ -474,6 +474,9 @@
     if (low.includes("already streaming") || low.includes("wait a minute")) {
       return { title: "Someone else is using the live slot", body: "This box runs one stream. Wait until that clip finishes, then Translate again." };
     }
+    if (low.includes("too many") || (low.includes("limit") && low.includes("hour"))) {
+      return { title: "Slow down", body: "Too many translates from here. Try again in a bit." };
+    }
     if (low.includes("too long") || low.includes("duration")) {
       return { title: "Clip is too long", body: "Free is for short clips. Try a shorter video." };
     }

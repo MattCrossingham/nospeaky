@@ -69,6 +69,11 @@ class Hub:
             "max": STREAM_MAX,
         }
 
+    def has_room(self, url: str, source_lang: str, target_lang: str, tier: str) -> bool:
+        key = room_key(url, source_lang, target_lang, tier)
+        with self.lock:
+            return key in self.rooms
+
     def join(self, url: str, source_lang: str, target_lang: str, tier: str, send) -> Room:
         if not url or not self.safe_url(url):
             raise ValueError("URL not allowed")
