@@ -347,7 +347,7 @@
       player.appendChild(track);
       try {
         if (player.textTracks && player.textTracks[0]) {
-          player.textTracks[0].mode = nativeTrack ? "showing" : "hidden";
+          player.textTracks[0].mode = "hidden";
         }
       } catch (_) { /* ignore */ }
     }
@@ -362,7 +362,7 @@
     player.hidden = false;
     player.removeAttribute("hidden");
     if (playerWrap) playerWrap.classList.remove("has-embed");
-    if (cueOverlay) cueOverlay.style.display = nativeTrack ? "none" : "";
+    if (cueOverlay) cueOverlay.style.display = "";
   }
 
   function downloadText(filename, text, mime) {
@@ -375,14 +375,10 @@
   }
 
   function syncOverlay() {
-    if (nativeTrack || !playingSubs || !cues.length) {
-      if (nativeTrack && cueOverlay) cueOverlay.textContent = "";
-      if (!playingSubs || !cues.length) {
-        if (cueOverlay) cueOverlay.textContent = "";
-        if (liveSub) liveSub.textContent = "";
-      }
-      if (nativeTrack) return;
-      if (!playingSubs || !cues.length) return;
+    if (!playingSubs || !cues.length) {
+      if (cueOverlay) cueOverlay.textContent = "";
+      if (liveSub) liveSub.textContent = "";
+      return;
     }
     const usingEmbed = embed && !embed.hidden;
     let t = player.currentTime || 0;
@@ -605,9 +601,9 @@
     if (job.media_url || hasFile) {
       try {
         if (job.media_url && !hasFile) await loadRemoteMedia(id);
-        nativeTrack = true;
+        nativeTrack = false;
         showHtml5();
-        applyCues(job.cues || cues, true);
+        applyCues(job.cues || cues, false);
         player.play().catch(() => {});
         return;
       } catch (_) {
