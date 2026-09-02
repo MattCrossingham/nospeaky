@@ -66,18 +66,93 @@
   let nativeTrack = false;
   let queueNote = "";
 
+  const embedHost = document.getElementById("embed-host");
+  let dmPlayer = null;
+  let dmVideoId = "";
+  let embedPing = 0;
+
+  function daiId(u) {
+    const m = (u || "").match(/(?:dai\.ly\/|dailymotion\.com\/video\/)([A-Za-z0-9]+)/i);
+    return m ? m[1] : "";
+  }
+
   function embedFromLink(u) {
     if (!u) return "";
-    let m = u.match(/(?:dai\.ly\/|dailymotion\.com\/video\/)([A-Za-z0-9]+)/i);
-    if (m) return "https://www.dailymotion.com/embed/video/" + m[1] + "?autoplay=1&api=postMessage";
-    m = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
-    if (m) return "https://www.youtube.com/embed/" + m[1] + "?autoplay=1&enablejsapi=1";
+    const id = daiId(u);
+    if (id) return "https://www.dailymotion.com/embed/video/" + id + "?autoplay=1&api=postMessage&origin=" + encodeURIComponent(location.origin);
+    const y = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
+    if (y) return "https://www.youtube.com/embed/" + y[1] + "?autoplay=1&enablejsapi=1";
     return "";
   }
 
-  let embedPing = 0;
+  function setPlayhead(sec) {
+    const t = Number(sec);
+    if (!Number.isFinite(t) || t < 0) return;
+    embedTime = t;
+    hasEmbedTime = true;
+  }
+
+  function loadDmLib() {
+    return new Promise((resolve, reject) => {
+      if (window.dailymotion && dailymotion.createPlayer) {
+        resolve(window.dailymotion);
+        return;
+      }
+      const existing = document.querySelector("script[data-ns-dm]");
+      if (existing) {
+        existing.addEventListener("load", () => resolve(window.dailymotion));
+        existing.addEventListener("error", reject);
+        return;
+      }
+      const s = document.createElement("script");
+      s.src = "https://geo.dailymotion.com/libs/player.js";
+      s.async = true;
+      s.dataset.nsDm = "1";
+      s.onload = () => resolve(window.dailymotion);
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  function bindDmTime(p) {
+    const onTime = (state) => {
+      if (state == null) return;
+      const t =
+        (typeof state === "number" && state) ||
+        state.videoTime ||
+        state.time ||
+        state.currentTime ||
+        (state.video && (state.video.time || state.video.currentTime));
+      if (typeof t === "number") setPlayhead(t);
+    };
+    const ev = (window.dailymotion && dailymotion.events) || {};
+    ["VIDEO_TIMECHANGE", "VIDEO_SEEKEND", "VIDEO_PLAYING", "timechange", "timeupdate"].forEach((name) => {
+      try {
+        const key = ev[name] || name;
+        if (p.on) p.on(key, onTime);
+      } catch (_) { /* ignore */ }
+    });
+    dmPlayer = p;
+  }
 
   function pingEmbedTime() {
+    if (dmPlayer) {
+      try {
+        if (typeof dmPlayer.getState === "function") {
+          const st = dmPlayer.getState();
+          if (st && typeof st.then === "function") {
+            st.then((s) => {
+              const t = s && (s.videoTime || s.time || s.currentTime);
+              if (typeof t === "number") setPlayhead(t);
+            }).catch(() => {});
+          } else if (st) {
+            const t = st.videoTime || st.time || st.currentTime;
+            if (typeof t === "number") setPlayhead(t);
+          }
+        }
+      } catch (_) { /* ignore */ }
+      return;
+    }
     if (!embed || embed.hidden || !embed.contentWindow) return;
     try {
       embed.contentWindow.postMessage(JSON.stringify({ command: "time" }), "*");
@@ -87,16 +162,75 @@
   function seekEmbed(sec) {
     const t = Number(sec);
     if (!Number.isFinite(t)) return;
-    embedTime = t;
-    hasEmbedTime = true;
+    setPlayhead(t);
+    if (dmPlayer && typeof dmPlayer.seek === "function") {
+      try { dmPlayer.seek(t); } catch (_) { /* ignore */ }
+      return;
+    }
     if (!embed || embed.hidden || !embed.contentWindow) return;
     try {
       embed.contentWindow.postMessage(JSON.stringify({ command: "seek", parameters: [t] }), "*");
     } catch (_) { /* ignore */ }
   }
 
+  function destroyDm() {
+    if (dmPlayer && typeof dmPlayer.destroy === "function") {
+      try { dmPlayer.destroy(); } catch (_) { /* ignore */ }
+    }
+    dmPlayer = null;
+    dmVideoId = "";
+    if (embedHost) {
+      embedHost.innerHTML = "";
+      embedHost.hidden = true;
+    }
+  }
+
+  function showDai(id) {
+    destroyDm();
+    if (embed) {
+      embed.hidden = true;
+      embed.removeAttribute("src");
+    }
+    player.hidden = true;
+    player.setAttribute("hidden", "");
+    if (embedHost) {
+      embedHost.hidden = false;
+      embedHost.removeAttribute("hidden");
+    }
+    if (playerWrap) playerWrap.classList.add("has-embed");
+    if (cueOverlay) cueOverlay.style.display = "";
+    embedTime = 0;
+    hasEmbedTime = false;
+    dmVideoId = id;
+    loadDmLib().then((dm) => {
+      if (!dm || !dm.createPlayer || dmVideoId !== id) return;
+      return dm.createPlayer("embed-host", {
+        video: id,
+        params: { autoplay: true, mute: false }
+      });
+    }).then((p) => {
+      if (!p || dmVideoId !== id) return;
+      bindDmTime(p);
+      try { if (p.play) p.play(); } catch (_) { /* ignore */ }
+    }).catch(() => {
+      if (embed) {
+        embed.src = embedFromLink("https://dai.ly/" + id);
+        embed.hidden = false;
+        embed.removeAttribute("hidden");
+      }
+    });
+    if (embedPing) clearInterval(embedPing);
+    embedPing = setInterval(pingEmbedTime, 200);
+  }
+
   function showEmbed(eu) {
+    const id = daiId(urlInput && urlInput.value) || daiId(eu);
+    if (id) {
+      showDai(id);
+      return;
+    }
     if (!embed || !eu) return;
+    destroyDm();
     if (embed.src !== eu) {
       embed.src = eu;
       embedClock = 0;
@@ -121,7 +255,7 @@
     if (playerWrap) playerWrap.classList.add("has-embed");
     if (cueOverlay) cueOverlay.style.display = "";
     if (embedPing) clearInterval(embedPing);
-    embedPing = setInterval(pingEmbedTime, 250);
+    embedPing = setInterval(pingEmbedTime, 200);
   }
 
   function fmtLeft(sec) {
@@ -386,6 +520,7 @@
       clearInterval(embedPing);
       embedPing = 0;
     }
+    if (typeof destroyDm === "function") destroyDm();
     if (embed) {
       embed.hidden = true;
       embed.setAttribute("hidden", "");
@@ -412,7 +547,7 @@
       if (liveSub) liveSub.textContent = "";
       return;
     }
-    const usingEmbed = embed && !embed.hidden;
+    const usingEmbed = Boolean(dmPlayer) || (embedHost && !embedHost.hidden) || (embed && !embed.hidden);
     let t = player.currentTime || 0;
     if (usingEmbed) {
       t = hasEmbedTime ? embedTime : -1;
