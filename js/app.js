@@ -40,6 +40,9 @@
   const waitLabel = document.getElementById("wait-label");
   const waitTime = document.getElementById("wait-time");
   const waitHint = document.getElementById("wait-hint");
+  const failOverlay = document.getElementById("fail-overlay");
+  const failTitle = document.getElementById("fail-title");
+  const failBody = document.getElementById("fail-body");
   const cueList = document.getElementById("cue-list");
   const jobState = document.getElementById("job-state");
   const jobDetail = document.getElementById("job-detail");
@@ -121,9 +124,53 @@
     }
   }
 
+  function friendlyError(raw) {
+    const s = String(raw || "");
+    const low = s.toLowerCase();
+    if (!s.trim() || low.includes("paste a link")) {
+      return { title: "Nothing to translate", body: "Paste a public video link first." };
+    }
+    if (low.includes("engine not") || low.includes("warming") || low.includes("failed to fetch") || low.includes("networkerror") || low.includes("load failed")) {
+      return { title: "Translator is down", body: "Wait a minute and try again." };
+    }
+    if (low.includes("youtube") || low.includes("sign in") || low.includes("bot") || low.includes("confirm you’re not") || low.includes("confirm you're not")) {
+      return { title: "That host blocked us", body: "YouTube often fails. Use a Dailymotion link (dai.ly) or a direct .mp4." };
+    }
+    if (low.includes("geo") || low.includes("region") || low.includes("not available") || low.includes("unavailable")) {
+      return { title: "This video is locked", body: "Region-locked or private clips won’t work. Need a public link." };
+    }
+    if (low.includes("unsupported") || low.includes("unable to extract") || low.includes("no video") || low.includes("yt-dlp") || low.includes("impersonate")) {
+      return { title: "We can’t open that link", body: "Use Dailymotion (dai.ly) or a direct .mp4 / .m4a." };
+    }
+    if (low.includes("too long") || low.includes("duration")) {
+      return { title: "Clip is too long", body: "Free is for short clips. Try a shorter video." };
+    }
+    if (low.includes("no speech") || low.includes("no cue")) {
+      return { title: "No speech found", body: "We opened it, but didn’t hear words." };
+    }
+    return { title: "Didn’t work", body: s };
+  }
+
+  function hideFail() {
+    if (failOverlay) failOverlay.hidden = true;
+  }
+
+  function showFail(raw) {
+    const f = friendlyError(raw);
+    hideWait();
+    playerSection.hidden = false;
+    if (failOverlay) failOverlay.hidden = false;
+    if (failTitle) failTitle.textContent = f.title;
+    if (failBody) failBody.textContent = f.body;
+    jobState.textContent = "Failed";
+    jobDetail.textContent = f.title;
+    setStatus(f.title + " — " + f.body, "err");
+  }
+
   function showWait(etaSec, label) {
     waiting = true;
     playingSubs = false;
+    hideFail();
     playerSection.hidden = false;
     if (waitOverlay) waitOverlay.hidden = false;
     if (waitLabel) waitLabel.textContent = label || "Translating";
@@ -485,13 +532,13 @@
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!hasInput()) {
-      setStatus("Paste a link or drop a file first.", "err");
+      showFail("Paste a link first.");
       return;
     }
 
     await probeEngine();
     if (!engineLive) {
-      setStatus("Engine not online. Can’t start a job yet.", "err");
+      showFail("Engine not online. Can’t start a job yet.");
       return;
     }
     const tier = (tierInput && tierInput.value) || "free";
@@ -533,10 +580,7 @@
       const job = await res.json();
       await pollJob(job.id || job.job_id);
     } catch (err) {
-      hideWait();
-      jobState.textContent = "Failed";
-      jobDetail.textContent = err.message || String(err);
-      setStatus(`Failed: ${err.message || err}`, "err");
+      showFail(err.message || String(err));
     } finally {
       startBtn.disabled = false;
       if (proBtn) {
@@ -624,12 +668,11 @@
         await startPlayback(job, id);
         jobState.textContent = "Playing";
         const n = (job.cues && job.cues.length) || 0;
-        setStatus(
-          n
-            ? `Playing with ${n} lines on the video.`
-            : "Ready, but no speech was detected.",
-          n ? "ok" : undefined
-        );
+        if (!n) {
+          showFail("no speech");
+          return;
+        }
+        setStatus(`Playing with ${n} lines on the video.`, "ok");
         return;
       }
       if (st === "failed" || st === "error") {

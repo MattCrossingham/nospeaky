@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Privacy — NoSpeaky</title>
 <meta name="theme-color" content="#0a0b0f">
-<link rel="stylesheet" href="css/site.css">
+<link rel="stylesheet" href="css/site.css?v=6">
 </head>
 <body>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -18,32 +18,37 @@
   </header>
   <main class="prose">
     <h1>Privacy</h1>
-    <p class="meta">Last updated 26 July 2026 · Pi Studios</p>
+    <p class="meta">Last updated 2 September 2026 · Pi Studios</p>
 
     <p>Plain English.</p>
 
-    <h2>On-device mode (what’s live now)</h2>
+    <h2>What you send</h2>
     <ul>
-      <li>Your video/audio is processed <strong>in your browser</strong></li>
-      <li>It is <strong>not uploaded</strong> to NoSpeaky servers</li>
-      <li>The speech model may download from a public model CDN (Hugging Face / jsDelivr) and cache on your device</li>
-      <li>We don’t get a copy of your file</li>
+      <li>The public video link you paste</li>
+      <li>The languages you pick</li>
     </ul>
 
-    <h2>What the website itself sees</h2>
+    <h2>What we do with it</h2>
     <ul>
-      <li>Normal web logs for the static pages (like any website)</li>
-      <li>No subtitle job contents, because jobs don’t hit our API right now</li>
+      <li>Our cloud box fetches the public clip, hears the speech, writes captions, and puts them on the player</li>
+      <li>We do not keep your videos. Jobs are dropped after a short time</li>
+      <li>We do not sell your links or caption text</li>
     </ul>
 
-    <h2>Later features</h2>
+    <h2>What we don’t do</h2>
+    <ul>
+      <li>No login today</li>
+      <li>No ads on this site today</li>
+      <li>Nothing hits your home network</li>
+    </ul>
+
+    <h2>Your responsibility</h2>
     <p>
-      If we add optional cloud tools (URL helpers, accounts, paid plans), we’ll say so clearly
-      and update this page before anything leaves your device.
+      Only paste links you’re allowed to use. Private, login-only, or stolen copies will fail or get blocked.
     </p>
 
     <h2>Contact</h2>
-    <p><a href="https://pistudios.app">pistudios.app</a></p>
+    <p>Pi Studios — <a href="https://pistudios.app">pistudios.app</a> · info@pistudios.app</p>
   </main>
   <footer class="foot">
     <span>© <span id="y"></span> NoSpeaky</span>
