@@ -127,15 +127,13 @@ class Hub:
         if not shutil.which("yt-dlp") or not shutil.which("ffmpeg"):
             raise RuntimeError("yt-dlp/ffmpeg missing")
         pattern = str(tmp / "c%05d.wav")
-        ytdlp = [
-            "yt-dlp",
-            "--js-runtimes", "deno",
-            "--impersonate", "firefox",
-            "--no-playlist",
-            "-f", "bestaudio[abr<=96]/bestaudio/worst",
-            "-o", "-",
-            room.url,
-        ]
+        host = room.url.lower()
+        ytdlp = ["yt-dlp", "--js-runtimes", "deno", "--no-playlist"]
+        if "youtube.com" in host or "youtu.be" in host:
+            ytdlp += ["--extractor-args", "youtube:player_client=android,ios,web"]
+        else:
+            ytdlp += ["--impersonate", "firefox"]
+        ytdlp += ["-f", "bestaudio[abr<=96]/bestaudio/worst", "-o", "-", room.url]
         ff = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-i", "pipe:0",

@@ -266,6 +266,20 @@ def _is_safe_public_url(url: str) -> bool:
     return True
 
 
+def _is_youtube(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return "youtube.com" in host or host == "youtu.be" or host.endswith(".youtube.com")
+
+
+def _ytdlp_base(url: str) -> list[str]:
+    cmd = ["yt-dlp", "--js-runtimes", "deno", "--no-playlist"]
+    if _is_youtube(url):
+        cmd += ["--extractor-args", "youtube:player_client=android,ios,web"]
+    else:
+        cmd += ["--impersonate", "firefox"]
+    return cmd
+
+
 def _probe_duration(path: Path) -> float | None:
     r = _run(
         [
@@ -318,13 +332,7 @@ def _fetch_url(url: str, out_dir: Path) -> Path:
         raise RuntimeError("URL not allowed")
 
     out_tmpl = str(out_dir / "audio.%(ext)s")
-    cmd = [
-        "yt-dlp",
-        "--js-runtimes",
-        "deno",
-        "--impersonate",
-        "firefox",
-        "--no-playlist",
+    cmd = _ytdlp_base(url) + [
         "-f",
         "bestaudio[abr<=96]/bestaudio/worst",
         "-x",
@@ -341,13 +349,7 @@ def _fetch_url(url: str, out_dir: Path) -> Path:
     r = _run(cmd, timeout=300)
     if r.returncode != 0:
         r = _run(
-            [
-                "yt-dlp",
-                "--js-runtimes",
-                "deno",
-                "--impersonate",
-                "firefox",
-                "--no-playlist",
+            _ytdlp_base(url) + [
                 "-f",
                 "bestaudio/worst",
                 "-o",
@@ -376,13 +378,7 @@ def _fetch_playable_video(url: str, out_dir: Path) -> Path:
         raise RuntimeError("URL not allowed")
     out = out_dir / "play.mp4"
     r = _run(
-        [
-            "yt-dlp",
-            "--js-runtimes",
-            "deno",
-            "--impersonate",
-            "firefox",
-            "--no-playlist",
+        _ytdlp_base(url) + [
             "-f",
             "best[height<=360][ext=mp4]/best[height<=360]/worst[ext=mp4]/worst",
             "--merge-output-format",
@@ -413,13 +409,7 @@ def _audio_stream_url(url: str) -> str:
     if not shutil.which("yt-dlp"):
         raise RuntimeError("yt-dlp not found — required for URL jobs")
     r = _run(
-        [
-            "yt-dlp",
-            "--js-runtimes",
-            "deno",
-            "--impersonate",
-            "firefox",
-            "--no-playlist",
+        _ytdlp_base(url) + [
             "-f",
             "bestaudio[abr<=96]/bestaudio/worst",
             "-g",
