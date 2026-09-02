@@ -641,6 +641,31 @@ def _get_faster_model():
     return _faster_model
 
 
+def _clean_hallucination(text: str) -> str:
+    words = [w for w in (text or "").split() if w]
+    if not words:
+        return ""
+    out: list[str] = []
+    prev = ""
+    n = 0
+    for w in words:
+        key = w.lower().strip(".,!?;:\"'")
+        if key == prev:
+            n += 1
+            if n <= 2:
+                out.append(w)
+        else:
+            prev = key
+            n = 1
+            out.append(w)
+    uniq = {w.lower().strip(".,!?;:\"'") for w in out}
+    if len(uniq) <= 1 and len(out) >= 4:
+        return ""
+    if len(out) >= 12 and len(uniq) <= 2:
+        return ""
+    return " ".join(out)
+
+
 def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) -> tuple[list[dict[str, Any]], str | None]:
     # Whisper task=translate always goes to English.
     # For other target languages: transcribe then machine-translate.
@@ -676,7 +701,7 @@ def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) 
             _whisper_ready = True
             detected = result.get("language")
             for seg in result.get("segments") or []:
-                text = (seg.get("text") or "").strip()
+                text = _clean_hallucination((seg.get("text") or "").strip())
                 if not text:
                     continue
                 cues.append(
@@ -693,11 +718,14 @@ def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) 
                 task=task,
                 language=language,
                 vad_filter=True,
+                condition_on_previous_text=False,
+                compression_ratio_threshold=2.2,
+                no_speech_threshold=0.55,
             )
             _whisper_ready = True
             detected = getattr(info, "language", None)
             for seg in segments:
-                text = (seg.text or "").strip()
+                text = _clean_hallucination((seg.text or "").strip())
                 if not text:
                     continue
                 cues.append(
