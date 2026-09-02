@@ -301,6 +301,58 @@ a.btn.primary:hover, a.btn.ghost:hover { text-decoration: none; }
   aspect-ratio: 16 / 9;
   isolation: isolate;
 }
+body.player-fs {
+  overflow: hidden;
+}
+body.player-fs::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 9998;
+}
+.player-wrap.is-fs,
+.player-wrap:fullscreen,
+.player-wrap:-webkit-full-screen {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw, calc(100dvh * 16 / 9));
+  height: min(100dvh, calc(100vw * 9 / 16));
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
+  border: 0;
+  z-index: 9999;
+  max-width: none;
+}
+.fs-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 46;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(10, 11, 15, 0.7);
+  color: var(--accent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.fs-btn svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.fs-btn:hover,
+.fs-btn:focus-visible {
+  outline: none;
+  background: rgba(10, 11, 15, 0.9);
+}
 
 #player, #embed, #embed-host, .embed-host {
   position: absolute;

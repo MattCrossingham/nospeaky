@@ -67,6 +67,7 @@
   const player = document.getElementById("player");
   const embed = document.getElementById("embed");
   const cueOverlay = document.getElementById("cue-overlay");
+  const fsBtn = document.getElementById("fs-btn");
   const liveSub = document.getElementById("live-sub");
   const waitOverlay = document.getElementById("wait-overlay");
   const waitLabel = document.getElementById("wait-label");
@@ -122,7 +123,7 @@
     const id = daiId(u);
     if (id) return "https://www.dailymotion.com/embed/video/" + id + "?autoplay=1&api=postMessage&origin=" + encodeURIComponent(location.origin);
     const y = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
-    if (y) return "https://www.youtube.com/embed/" + y[1] + "?autoplay=1&enablejsapi=1";
+    if (y) return "https://www.youtube.com/embed/" + y[1] + "?autoplay=1&enablejsapi=1&fs=0";
     return "";
   }
 
@@ -298,7 +299,7 @@
       if (!dm || !dm.createPlayer || dmVideoId !== id) return;
       return dm.createPlayer("embed-host", {
         video: id,
-        params: { autoplay: true, mute: false }
+        params: { autoplay: true, mute: false, fullscreen: false }
       });
     }).then((p) => {
       if (!p || dmVideoId !== id) return;
@@ -362,7 +363,7 @@
         videoId: id,
         width: "100%",
         height: "100%",
-        playerVars: { autoplay: 1, playsinline: 1, rel: 0, origin: location.origin },
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, fs: 0, origin: location.origin },
         events: {
           onReady: (e) => {
             embedPlaying = true;
@@ -380,7 +381,7 @@
       });
     }).catch(() => {
       if (embed) {
-        embed.src = "https://www.youtube.com/embed/" + id + "?autoplay=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin);
+        embed.src = "https://www.youtube.com/embed/" + id + "?autoplay=1&enablejsapi=1&fs=0&origin=" + encodeURIComponent(location.origin);
         embed.hidden = false;
         embed.removeAttribute("hidden");
       }
@@ -1115,6 +1116,76 @@
       }
       await new Promise((r) => setTimeout(r, 400));
     }
+  }
+
+  function fsEl() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  function playerIsFs() {
+    return Boolean(playerWrap && (playerWrap.classList.contains("is-fs") || fsEl() === playerWrap));
+  }
+
+  function syncFsUi() {
+    const on = playerIsFs();
+    if (document.body) document.body.classList.toggle("player-fs", on);
+    if (!fsBtn) return;
+    fsBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    fsBtn.setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
+  }
+
+  function exitPlayerFs() {
+    const el = fsEl();
+    if (el) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) {
+        try { exit.call(document); } catch (_) { /* ignore */ }
+      }
+    }
+    if (playerWrap) playerWrap.classList.remove("is-fs");
+    syncFsUi();
+  }
+
+  function enterPlayerFs() {
+    if (!playerWrap) return;
+    const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+    const req = playerWrap.requestFullscreen || playerWrap.webkitRequestFullscreen;
+    if (!coarse && typeof req === "function") {
+      const p = req.call(playerWrap);
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          playerWrap.classList.add("is-fs");
+          syncFsUi();
+        });
+        return;
+      }
+    }
+    playerWrap.classList.add("is-fs");
+    syncFsUi();
+  }
+
+  function togglePlayerFs() {
+    if (playerIsFs()) exitPlayerFs();
+    else enterPlayerFs();
+  }
+
+  if (fsBtn && playerWrap) {
+    fsBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      togglePlayerFs();
+    });
+    document.addEventListener("fullscreenchange", () => {
+      if (fsEl() !== playerWrap) playerWrap.classList.remove("is-fs");
+      syncFsUi();
+    });
+    document.addEventListener("webkitfullscreenchange", () => {
+      if (fsEl() !== playerWrap) playerWrap.classList.remove("is-fs");
+      syncFsUi();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && playerIsFs()) exitPlayerFs();
+    });
   }
 
   probeEngine();
