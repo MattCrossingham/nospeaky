@@ -64,6 +64,7 @@
   let etaUntil = 0;
   let waitTick = 0;
   let nativeTrack = false;
+  let queueNote = "";
 
   function embedFromLink(u) {
     if (!u) return "";
@@ -118,9 +119,9 @@
     const left = (etaUntil - Date.now()) / 1000;
     if (waitTime) waitTime.textContent = fmtLeft(left);
     if (waitHint) {
-      waitHint.textContent = left > 0
-        ? "Subtitles start when this hits zero."
-        : "Almost there…";
+      if (queueNote) waitHint.textContent = queueNote;
+      else if (left > 0) waitHint.textContent = "Subtitles start when this hits zero.";
+      else waitHint.textContent = "Almost there…";
     }
   }
 
@@ -629,6 +630,15 @@
       jobDetail.textContent = job.message || "";
 
       if (waiting) {
+        const qp = Number(job.queue_pos || 0);
+        const ql = Number(job.queue_len || 0);
+        if (qp > 1) {
+          queueNote = "Number " + qp + " in the queue" + (ql ? " of " + ql : "") + ".";
+          if (waitLabel) waitLabel.textContent = "In the queue";
+        } else {
+          queueNote = "";
+          if (waitLabel) waitLabel.textContent = "Translating";
+        }
         if (typeof job.eta_sec === "number" && Number.isFinite(job.eta_sec)) {
           etaUntil = Date.now() + Math.max(0, job.eta_sec) * 1000;
         } else if (typeof job.duration === "number" && job.duration > 0) {
