@@ -70,6 +70,8 @@
   let dmPlayer = null;
   let dmVideoId = "";
   let embedPing = 0;
+  let embedPlaying = false;
+  let lastTick = 0;
 
   function daiId(u) {
     const m = (u || "").match(/(?:dai\.ly\/|dailymotion\.com\/video\/)([A-Za-z0-9]+)/i);
@@ -90,6 +92,7 @@
     if (!Number.isFinite(t) || t < 0) return;
     embedTime = t;
     hasEmbedTime = true;
+    lastTick = performance.now();
   }
 
   function loadDmLib() {
@@ -126,10 +129,15 @@
       if (typeof t === "number") setPlayhead(t);
     };
     const ev = (window.dailymotion && dailymotion.events) || {};
-    ["VIDEO_TIMECHANGE", "VIDEO_SEEKEND", "VIDEO_PLAYING", "timechange", "timeupdate"].forEach((name) => {
+    ["VIDEO_TIMECHANGE", "VIDEO_SEEKEND", "VIDEO_PLAYING", "VIDEO_PLAY", "VIDEO_PAUSE", "timechange", "timeupdate", "play", "pause"].forEach((name) => {
       try {
         const key = ev[name] || name;
-        if (p.on) p.on(key, onTime);
+        if (p.on) p.on(key, (state) => {
+          const n = String(name).toLowerCase();
+          if (n.includes("pause")) embedPlaying = false;
+          else if (n.includes("play")) embedPlaying = true;
+          onTime(state);
+        });
       } catch (_) { /* ignore */ }
     });
     dmPlayer = p;
@@ -200,7 +208,9 @@
     if (playerWrap) playerWrap.classList.add("has-embed");
     if (cueOverlay) cueOverlay.style.display = "";
     embedTime = 0;
-    hasEmbedTime = false;
+    hasEmbedTime = true;
+    embedPlaying = true;
+    lastTick = performance.now();
     dmVideoId = id;
     loadDmLib().then((dm) => {
       if (!dm || !dm.createPlayer || dmVideoId !== id) return;
@@ -472,7 +482,7 @@
   }
 
   function renderCueList() {
-    cueList.innerHTML = "";
+    if (!cueList) return;
     cues.forEach((c, idx) => {
       const li = document.createElement("li");
       li.dataset.idx = String(idx);
@@ -566,9 +576,11 @@
     }
     cueOverlay.textContent = active ? active.text : "";
     if (liveSub) liveSub.textContent = active ? active.text : "";
-    [...cueList.children].forEach((li, i) => {
-      li.classList.toggle("active", i === activeIdx);
-    });
+    if (cueList) {
+      [...cueList.children].forEach((li, i) => {
+        li.classList.toggle("active", i === activeIdx);
+      });
+    }
   }
 
   window.addEventListener("message", (ev) => {
@@ -583,12 +595,18 @@
     else if (d.info && typeof d.info.currentTime === "number") t = d.info.currentTime;
     else if (Array.isArray(d.parameters) && typeof d.parameters[0] === "number") t = d.parameters[0];
     if (typeof t === "number" && Number.isFinite(t) && t >= 0) {
-      embedTime = t;
-      hasEmbedTime = true;
+      setPlayhead(t);
+      embedPlaying = true;
     }
   });
 
-  function tickOverlay() {
+  function tickOverlay(now) {
+    now = typeof now === "number" ? now : performance.now();
+    if (embedPlaying && hasEmbedTime) {
+      const dt = (now - lastTick) / 1000;
+      if (dt > 0 && dt < 0.5) embedTime += dt;
+    }
+    lastTick = now;
     syncOverlay();
     overlayRaf = requestAnimationFrame(tickOverlay);
   }
