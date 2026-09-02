@@ -29,6 +29,7 @@ from engine.stream import Hub as StreamHub
 from engine.scribe import iso_lang, transcribe_file, words_to_cues
 from engine.translate_local import iso2 as _iso2
 from engine.translate_local import translate_lines as _local_translate
+from engine import translate_langbly
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -601,7 +602,9 @@ def _junk_translation(s: str) -> bool:
 def _translate_lines(texts: list[str], target: str, source: str | None = None) -> list[str]:
     if not texts:
         return []
-    got = _local_translate(texts, target, source)
+    got = translate_langbly.translate_lines(texts, target, source)
+    if got is None:
+        got = _local_translate(texts, target, source)
     if len(got) != len(texts):
         return list(texts)
     out = []
@@ -1029,6 +1032,7 @@ def health() -> dict[str, Any]:
             "job_limit_per_hour": JOB_LIMIT_PER_HOUR,
             "stream_limit_per_hour": STREAM_LIMIT_PER_HOUR,
         },
+        "langbly_ready": translate_langbly.ready(),
     }
 
 
