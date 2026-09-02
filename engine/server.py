@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from engine import queue as jobq
+from engine import ratelimit
 from engine.stream import Hub as StreamHub
 from engine.scribe import iso_lang, transcribe_file, words_to_cues
 from engine.translate_local import iso2 as _iso2
@@ -50,8 +51,9 @@ WHISPER_COMPUTE_TYPE = os.environ.get("NOSPEAKY_COMPUTE_TYPE", "int8")
 MAX_UPLOAD_MB = int(os.environ.get("NOSPEAKY_MAX_UPLOAD_MB", "200"))
 MAX_DURATION_SEC = int(os.environ.get("NOSPEAKY_MAX_DURATION_SEC", "600"))  # 10 min public beta
 API_KEY = os.environ.get("NOSPEAKY_API_KEY", "").strip()
-# Simple in-memory rate limit: N new jobs per IP per hour
+# Hourly caps per IP. SQLite on the data volume — survives restart.
 JOB_LIMIT_PER_HOUR = int(os.environ.get("NOSPEAKY_JOB_LIMIT_PER_HOUR", "8"))
+STREAM_LIMIT_PER_HOUR = int(os.environ.get("NOSPEAKY_STREAM_LIMIT_PER_HOUR", "8"))
 # Optional: disable yt-dlp URL fetch on public cloud until hardened further
 ALLOW_URL_FETCH = os.environ.get("NOSPEAKY_ALLOW_URL_FETCH", "1").strip() not in {"0", "false", "no"}
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "").strip()
@@ -98,8 +100,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-_rate: dict[str, list[float]] = {}
 
 _lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
@@ -978,7 +978,7 @@ def _kick_worker(tier: str = "free") -> None:
 
 
 def _client_ip(request: Request) -> str:
-    xf = request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for")
+    xf = request.headers.get("cf-connecting-ip") or request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for")
     if xf:
         return xf.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
@@ -991,14 +991,19 @@ def _check_key(x_nospeaky_key: str | None = Header(default=None, alias="X-NoSpea
         raise HTTPException(401, "Invalid or missing API key")
 
 
-def _rate_limit(ip: str) -> None:
-    now = time.time()
-    window = 3600.0
-    hits = [t for t in _rate.get(ip, []) if now - t < window]
-    if len(hits) >= JOB_LIMIT_PER_HOUR:
-        raise HTTPException(429, f"Too many jobs from this IP. Limit {JOB_LIMIT_PER_HOUR}/hour while in beta.")
-    hits.append(now)
-    _rate[ip] = hits
+def _rate_limit(ip: str, kind: str = "job") -> None:
+    cap = STREAM_LIMIT_PER_HOUR if kind == "stream" else JOB_LIMIT_PER_HOUR
+    try:
+        ratelimit.hit(kind, ip, cap)
+    except ratelimit.RateLimited as e:
+        raise HTTPException(429, str(e)) from e
+
+
+def _ws_ip(ws: WebSocket) -> str:
+    xf = ws.headers.get("cf-connecting-ip") or ws.headers.get("x-real-ip") or ws.headers.get("x-forwarded-for")
+    if xf:
+        return xf.split(",")[0].strip()
+    return ws.client.host if ws.client else "unknown"
 
 
 @app.get("/health")
@@ -1019,6 +1024,11 @@ def health() -> dict[str, Any]:
         "pro_locked": True,
         "queue": jobq.snapshot("free"),
         "stream": (_stream_hub.stats() if _stream_hub else {"rooms": 0, "running": 0, "clients": 0, "max": 1}),
+        "rate": {
+            "backend": "sqlite",
+            "job_limit_per_hour": JOB_LIMIT_PER_HOUR,
+            "stream_limit_per_hour": STREAM_LIMIT_PER_HOUR,
+        },
     }
 
 
@@ -1212,9 +1222,19 @@ async def stream_captions(ws: WebSocket) -> None:
         await ws.close()
         return
 
+    hub = _get_stream_hub()
+    existing = hub.has_room(url, source_lang, target_lang, tier)
+    if not existing:
+        try:
+            ratelimit.hit("stream", _ws_ip(ws), STREAM_LIMIT_PER_HOUR)
+        except ratelimit.RateLimited as e:
+            await ws.send_json({"type": "error", "error": str(e)})
+            await ws.close()
+            return
+
     room = None
     try:
-        room = _get_stream_hub().join(url, source_lang, target_lang, tier, send)
+        room = hub.join(url, source_lang, target_lang, tier, send)
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
