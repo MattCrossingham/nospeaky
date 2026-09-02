@@ -143,6 +143,9 @@
     if (low.includes("unsupported") || low.includes("unable to extract") || low.includes("no video") || low.includes("yt-dlp") || low.includes("impersonate")) {
       return { title: "We can’t open that link", body: "Use Dailymotion (dai.ly) or a direct .mp4 / .m4a." };
     }
+    if (low.includes("already streaming") || low.includes("wait a minute")) {
+      return { title: "Someone else is using the live slot", body: "This box runs one stream. Wait until that clip finishes, then Translate again." };
+    }
     if (low.includes("too long") || low.includes("duration")) {
       return { title: "Clip is too long", body: "Free is for short clips. Try a shorter video." };
     }
@@ -631,7 +634,12 @@
         try {
           await runStream(url, tier);
           return;
-        } catch (_) {
+        } catch (streamErr) {
+          const sm = String((streamErr && streamErr.message) || streamErr);
+          if (/already streaming/i.test(sm) || /wait a minute/i.test(sm)) {
+            showFail("This box is already streaming another clip. Wait a minute.");
+            return;
+          }
           jobDetail.textContent = "Live path missed. Whole-file job…";
         }
       }
