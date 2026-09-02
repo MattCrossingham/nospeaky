@@ -1148,18 +1148,6 @@
 
   function enterPlayerFs() {
     if (!playerWrap) return;
-    const coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
-    const req = playerWrap.requestFullscreen || playerWrap.webkitRequestFullscreen;
-    if (!coarse && typeof req === "function") {
-      const p = req.call(playerWrap);
-      if (p && typeof p.catch === "function") {
-        p.catch(() => {
-          playerWrap.classList.add("is-fs");
-          syncFsUi();
-        });
-        return;
-      }
-    }
     playerWrap.classList.add("is-fs");
     syncFsUi();
   }
