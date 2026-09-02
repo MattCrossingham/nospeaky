@@ -24,11 +24,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from engine import queue as jobq
+from engine.stream import Hub as StreamHub
 from engine.scribe import iso_lang, transcribe_file, words_to_cues
 from engine.translate_local import iso2 as _iso2
 from engine.translate_local import translate_lines as _local_translate
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -107,6 +108,7 @@ _worker_busy = False
 _model_lock = threading.Lock()
 _whisper_ready = False
 _pro_sema = threading.Semaphore(PRO_MAX_CONCURRENT)
+_stream_hub: StreamHub | None = None
 
 
 def _job_dir(job_id: str) -> Path:
@@ -998,6 +1000,7 @@ def health() -> dict[str, Any]:
         "pro_max_duration_sec": PRO_MAX_DURATION_SEC,
         "pro_locked": True,
         "queue": jobq.snapshot("free"),
+        "stream": (_stream_hub.stats() if _stream_hub else {"rooms": 0, "running": 0, "clients": 0, "max": 1}),
     }
 
 
@@ -1145,3 +1148,64 @@ def _startup() -> None:
                 _start_thread(jid)
         except Exception:
             continue
+
+
+def _get_stream_hub() -> StreamHub:
+    global _stream_hub
+    if _stream_hub is None:
+        _stream_hub = StreamHub(_transcribe, _is_safe_public_url)
+    return _stream_hub
+
+
+@app.websocket("/v1/stream")
+async def stream_captions(ws: WebSocket) -> None:
+    await ws.accept()
+    loop = asyncio.get_running_loop()
+
+    def send(msg: dict[str, Any]) -> None:
+        asyncio.run_coroutine_threadsafe(ws.send_json(msg), loop)
+
+    try:
+        start = await asyncio.wait_for(ws.receive_json(), timeout=20)
+    except Exception:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+        return
+
+    got = str(start.get("key") or "").encode()
+    need = API_KEY.encode() if API_KEY else b""
+    if need and not (len(got) == len(need) and hmac.compare_digest(got, need)):
+        await ws.send_json({"type": "error", "error": "bad key"})
+        await ws.close()
+        return
+
+    url = (start.get("url") or "").strip()
+    source_lang = start.get("source_lang") or "auto"
+    target_lang = start.get("target_lang") or "en"
+    tier = (start.get("tier") or "free").strip().lower()
+    if tier == "pro" and not _pro_token_ok(start.get("pro_token")):
+        await ws.send_json({"type": "error", "error": "Pro is locked."})
+        await ws.close()
+        return
+    if not url:
+        await ws.send_json({"type": "error", "error": "Provide a url"})
+        await ws.close()
+        return
+
+    room = None
+    try:
+        room = _get_stream_hub().join(url, source_lang, target_lang, tier, send)
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await ws.send_json({"type": "error", "error": str(e)})
+        except Exception:
+            pass
+    finally:
+        if room is not None:
+            _get_stream_hub().leave(room, send)

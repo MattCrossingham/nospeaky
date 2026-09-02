@@ -526,6 +526,76 @@
     downloadText("nospeaky.vtt", vttText, "text/vtt");
   });
 
+
+  function wsUrl() {
+    return API_BASE.replace(/^http/i, "ws").replace(/\/$/, "") + "/v1/stream";
+  }
+
+  function runStream(url, tier) {
+    return new Promise((resolve, reject) => {
+      let sock;
+      try { sock = new WebSocket(wsUrl()); }
+      catch (e) { reject(e); return; }
+      let got = false;
+      const timer = setTimeout(() => {
+        if (!got) {
+          try { sock.close(); } catch (_) {}
+          reject(new Error("Live captions timed out"));
+        }
+      }, 45000);
+      sock.onopen = () => {
+        sock.send(JSON.stringify({
+          url: url,
+          source_lang: sourceLang.value,
+          target_lang: targetLang.value,
+          tier: tier,
+          key: API_KEY,
+          pro_token: PRO_TOKEN
+        }));
+      };
+      sock.onerror = () => reject(new Error("Live captions failed"));
+      sock.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (_) { return; }
+        if (msg.type === "error") {
+          try { sock.close(); } catch (_) {}
+          reject(new Error(msg.error || "stream"));
+          return;
+        }
+        if (msg.type === "status") {
+          jobDetail.textContent = msg.message || "Streaming";
+          setStatus(msg.message || "Live captions…", "ok");
+        }
+        if (msg.type === "cue" && msg.text) {
+          got = true;
+          cues.push({ start: Number(msg.start) || 0, end: Number(msg.end) || 0, text: msg.text });
+          applyCues(cues, false);
+          if (cues.length === 1) {
+            hideWait();
+            playingSubs = true;
+            const eu = embedFromLink(url);
+            if (eu) showEmbed(eu);
+            jobState.textContent = "Playing";
+            setStatus("Captions while it plays.", "ok");
+          }
+          progressBar.style.width = Math.min(90, 10 + cues.length * 4) + "%";
+        }
+        if (msg.type === "done") {
+          clearTimeout(timer);
+          if (Array.isArray(msg.cues) && msg.cues.length) applyCues(msg.cues, false);
+          progressBar.style.width = "100%";
+          try { sock.close(); } catch (_) {}
+          resolve();
+        }
+      };
+      sock.onclose = () => {
+        clearTimeout(timer);
+        if (got) resolve();
+        else reject(new Error("Stream closed"));
+      };
+    });
+  }
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!hasInput()) {
@@ -551,14 +621,22 @@
     playerSection.hidden = false;
     showWait(null, tier === "pro" ? "Pro translating" : "Translating");
     jobState.textContent = "Working";
-    jobDetail.textContent = "Sending job…";
+    jobDetail.textContent = "Starting live captions…";
     progressBar.style.width = "5%";
     setStatus(tier === "pro" ? "Pro translating…" : "Translating…", "ok");
 
     try {
+      const url = urlInput.value.trim();
+      if (url && !file) {
+        try {
+          await runStream(url, tier);
+          return;
+        } catch (_) {
+          jobDetail.textContent = "Live path missed. Whole-file job…";
+        }
+      }
       const body = new FormData();
       if (file) body.append("file", file);
-      const url = urlInput.value.trim();
       if (url) body.append("url", url);
       body.append("source_lang", sourceLang.value);
       body.append("target_lang", targetLang.value);
