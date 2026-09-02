@@ -25,6 +25,38 @@
   const fileName = document.getElementById("file-name");
   const sourceLang = document.getElementById("source-lang");
   const targetLang = document.getElementById("target-lang");
+  (function fillLangs() {
+    const langs = window.NOSPEAKY_LANGS || [];
+    if (!langs.length) return;
+    if (sourceLang) {
+      sourceLang.innerHTML = "";
+      const auto = document.createElement("option");
+      auto.value = "auto";
+      auto.textContent = "Auto-detect";
+      auto.selected = true;
+      sourceLang.appendChild(auto);
+      langs.forEach((l) => {
+        const o = document.createElement("option");
+        o.value = l.code;
+        o.textContent = l.name;
+        sourceLang.appendChild(o);
+      });
+    }
+    if (targetLang) {
+      targetLang.innerHTML = "";
+      const same = document.createElement("option");
+      same.value = "same";
+      same.textContent = "Same as spoken";
+      targetLang.appendChild(same);
+      langs.forEach((l) => {
+        const o = document.createElement("option");
+        o.value = l.code;
+        o.textContent = l.name;
+        if (l.code === "en") o.selected = true;
+        targetLang.appendChild(o);
+      });
+    }
+  })();
   const startBtn = document.getElementById("start-btn");
   const proBtn = document.getElementById("pro-btn");
   const tierInput = document.getElementById("tier");
