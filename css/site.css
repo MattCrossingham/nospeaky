@@ -6,9 +6,9 @@
   --text: #e8eaef;
   --muted: #9aa3b5;
   --faint: #6b7385;
-  --accent: #7cffa1;
-  --accent-dim: rgba(124, 255, 161, 0.14);
-  --accent-text: #04140a;
+  --accent: #F2A93B;
+  --accent-dim: rgba(242, 169, 59, 0.14);
+  --accent-text: #1a1104;
   --warn: #ffc857;
   --danger: #ff7a8a;
   --radius: 16px;
@@ -38,7 +38,7 @@ strong { font-weight: 700; color: var(--text); }
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 255, 161, 0.12), transparent 55%),
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(242, 169, 59, 0.12), transparent 55%),
     linear-gradient(to bottom, transparent, var(--bg) 80%),
     repeating-linear-gradient(0deg, transparent, transparent 47px, rgba(255,255,255,0.02) 48px),
     repeating-linear-gradient(90deg, transparent, transparent 47px, rgba(255,255,255,0.02) 48px);
@@ -207,16 +207,16 @@ input[type="url"]:focus, select:focus {
   min-height: 120px;
   padding: 20px;
   border-radius: 12px;
-  border: 1px dashed rgba(124, 255, 161, 0.35);
-  background: rgba(124, 255, 161, 0.04);
+  border: 1px dashed rgba(242, 169, 59, 0.35);
+  background: rgba(242, 169, 59, 0.04);
   cursor: pointer;
   text-align: center;
   transition: background 0.15s ease, border-color 0.15s ease;
   margin-bottom: 14px;
 }
 .drop:hover, .drop.dragover {
-  background: rgba(124, 255, 161, 0.09);
-  border-color: rgba(124, 255, 161, 0.7);
+  background: rgba(242, 169, 59, 0.09);
+  border-color: rgba(242, 169, 59, 0.7);
 }
 .drop-title { font-weight: 650; }
 .drop-sub { color: var(--faint); font-size: 0.85rem; }
@@ -263,7 +263,7 @@ input[type="url"]:focus, select:focus {
 .btn.primary:not(:disabled):focus-visible {
   outline: none;
   transform: translateY(-1px);
-  box-shadow: 0 0 0 3px var(--accent-dim), 0 0 28px rgba(124, 255, 161, 0.5);
+  box-shadow: 0 0 0 3px var(--accent-dim), 0 0 28px rgba(242, 169, 59, 0.5);
 }
 .btn.ghost {
   background: transparent;
@@ -577,8 +577,8 @@ body.player-fs {
 }
 .price-card.featured {
   border-color: var(--accent);
-  background: rgba(124, 255, 161, 0.08);
-  box-shadow: 0 0 0 1px rgba(124, 255, 161, 0.28), 0 18px 50px rgba(124, 255, 161, 0.16);
+  background: rgba(242, 169, 59, 0.08);
+  box-shadow: 0 0 0 1px rgba(242, 169, 59, 0.28), 0 18px 50px rgba(242, 169, 59, 0.16);
 }
 .price-card h3 { margin: 0 0 6px; font-size: 1.1rem; }
 .price-card .price {
