@@ -670,15 +670,10 @@ def _clean_hallucination(text: str) -> str:
 
 
 def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) -> tuple[list[dict[str, Any]], str | None]:
-    # Whisper task=translate always goes to English.
-    # For other target languages: transcribe then machine-translate.
-    want_en = target_lang == "en"
+    # Tiny Whisper task=translate is junk (DE “Kurz und leicht” → “Codes and Light”).
+    # Hear in the spoken language, then Langbly / Argos for Read-it-in.
     language = None if source_lang in ("", "auto", None) else source_lang
-
-    if want_en and (language is None or language != "en"):
-        task = "translate"
-    else:
-        task = "transcribe"
+    task = "transcribe"
 
     backend = _pick_backend()
     global _whisper_ready
@@ -741,17 +736,15 @@ def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) 
                 if on_partial:
                     on_partial(list(cues), detected)
 
-    # If target is not English and not same as detected/source, translate cues.
     src = language or detected or "auto"
-    if target_lang not in ("", None) and target_lang != "en":
-        if src != target_lang:
-            texts = [c["text"] for c in cues]
-            translated = _translate_lines(texts, target_lang)
-            for c, t in zip(cues, translated):
-                c["text"] = t
-    elif target_lang == "en" and task == "transcribe" and src not in ("en", "auto", None):
+    tgt = target_lang
+    if tgt and tgt not in ("", None, "same") and src != tgt and not (
+        tgt == "en" and src in ("en", "auto", None)
+    ):
         texts = [c["text"] for c in cues]
-        translated = _translate_lines(texts, "en")
+        translated = _translate_lines(
+            texts, tgt, source=None if src in ("auto", None) else src
+        )
         for c, t in zip(cues, translated):
             c["text"] = t
 
