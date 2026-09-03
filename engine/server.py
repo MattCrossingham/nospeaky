@@ -640,6 +640,7 @@ def _get_faster_model():
             WHISPER_MODEL,
             device=WHISPER_DEVICE,
             compute_type=WHISPER_COMPUTE_TYPE,
+            cpu_threads=2,
         )
     return _faster_model
 
