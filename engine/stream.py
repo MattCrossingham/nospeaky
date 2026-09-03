@@ -157,36 +157,13 @@ class Hub:
         while True:
             files = sorted(tmp.glob("c*.wav"))
             progressed = False
-            ready: list = []
             for wav in files:
-                if wav.name in seen:
+                name = wav.name
+                if name in seen:
                     continue
                 # skip the file ffmpeg is still writing (newest while ffmpeg alive)
                 if wav == files[-1] and proc_f.poll() is None:
                     continue
-                ready.append(wav)
-            # Interpreter catch-up: if we fell behind, drop old chunks and
-            # keep timestamps on the playhead.
-            if len(ready) > 1:
-                for wav in ready[:-1]:
-                    seen.add(wav.name)
-                    try:
-                        dur = float(subprocess.check_output(
-                            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                             "-of", "default=nw=1:nk=1", str(wav)],
-                            text=True, timeout=20,
-                        ).strip() or CHUNK_SEC)
-                    except Exception:
-                        dur = float(CHUNK_SEC)
-                    t0 += max(0.5, dur)
-                    try:
-                        wav.unlink()
-                    except OSError:
-                        pass
-                    progressed = True
-                ready = ready[-1:]
-            for wav in ready:
-                name = wav.name
                 seen.add(name)
                 cues, _det = self.transcribe(wav, room.source_lang, room.target_lang)
                 shifted = []
