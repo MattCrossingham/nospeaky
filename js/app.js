@@ -14,6 +14,8 @@
   ).replace(/\/$/, "");
   const API_KEY = params.get("key") || cfg.apiKey || "";
   const PRO_TOKEN = (params.get("pro") || "").trim();
+  let skipToken = "";
+  try { skipToken = localStorage.getItem("nospeaky_skip") || ""; } catch (_) { skipToken = ""; }
 
   let engineLive = false;
   let proReady = false;
@@ -58,6 +60,7 @@
     }
   })();
   const startBtn = document.getElementById("start-btn");
+  const payBtn = document.getElementById("pay-btn");
   const proBtn = document.getElementById("pro-btn");
   const tierInput = document.getElementById("tier");
   const status = document.getElementById("form-status");
@@ -111,7 +114,7 @@
   let lastTick = 0;
 
   function ytId(u) {
-    const m = (u || "").match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
+    const m = (u || "").match(/(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/i);
     return m ? m[1] : "";
   }
 
@@ -124,8 +127,8 @@
     if (!u) return "";
     const id = daiId(u);
     if (id) return "https://www.dailymotion.com/embed/video/" + id + "?autoplay=1&api=postMessage&origin=" + encodeURIComponent(location.origin);
-    const y = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
-    if (y) return "https://www.youtube.com/embed/" + y[1] + "?autoplay=1&enablejsapi=1&fs=0";
+    const y = ytId(u);
+    if (y) return "https://www.youtube.com/embed/" + y + "?autoplay=1&enablejsapi=1&fs=0";
     return "";
   }
 
@@ -531,6 +534,7 @@
   function apiHeaders(extra) {
     const h = Object.assign({}, extra || {});
     if (API_KEY) h["X-NoSpeaky-Key"] = API_KEY;
+    if (skipToken) h["X-NoSpeaky-Skip"] = skipToken;
     return h;
   }
 
@@ -806,14 +810,20 @@
       const data = await res.json();
       engineLive = Boolean(data && data.ok);
       proReady = Boolean(data && data.pro_ready);
+      const stripeOn = Boolean(data && data.stripe && data.stripe.ready);
       const canPro = engineLive && proReady && Boolean(PRO_TOKEN);
+      if (payBtn) {
+        payBtn.hidden = !stripeOn || Boolean(skipToken);
+      }
       if (proBtn) {
         proBtn.hidden = !PRO_TOKEN;
         proBtn.disabled = !canPro;
       }
       if (engineLive) {
         setStatus(
-          canPro
+          skipToken
+            ? "Queue skip is on. Paste a link, then Translate."
+            : canPro
             ? "Paste a link, pick a language, then Translate or Pro."
             : "Paste a link, pick a language, then Translate.",
           "ok"
@@ -822,6 +832,7 @@
     } catch (_) {
       engineLive = false;
       proReady = false;
+      if (payBtn) payBtn.hidden = true;
       if (proBtn) {
         proBtn.hidden = !PRO_TOKEN;
         proBtn.disabled = true;
@@ -1050,6 +1061,42 @@
     });
   }
 
+  if (payBtn) {
+    payBtn.addEventListener("click", async () => {
+      payBtn.disabled = true;
+      try {
+        const res = await apiFetch("/v1/billing/checkout", { method: "POST" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || data.error || "Checkout failed");
+        if (!data.url) throw new Error("No checkout link");
+        location.href = data.url;
+      } catch (err) {
+        setStatus(err.message || String(err), "err");
+        payBtn.disabled = false;
+      }
+    });
+  }
+
+  async function finishCheckout() {
+    const sid = params.get("session_id") || "";
+    if (params.get("checkout") !== "success" || !sid) {
+      if (params.get("checkout") === "cancel") setStatus("Payment cancelled.", "err");
+      return;
+    }
+    try {
+      const res = await apiFetch("/v1/billing/confirm?session_id=" + encodeURIComponent(sid));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Payment not finished");
+      skipToken = data.skip_token || skipToken;
+      try { localStorage.setItem("nospeaky_skip", skipToken); } catch (_) {}
+      if (payBtn) payBtn.hidden = true;
+      setStatus("Queue skip is on. Paste a link, then Translate.", "ok");
+      history.replaceState({}, "", "watch.html");
+    } catch (err) {
+      setStatus(err.message || String(err), "err");
+    }
+  }
+
   async function startPlayback(job, id) {
     hideWait();
     playingSubs = true;
@@ -1201,5 +1248,5 @@
     });
   }
 
-  probeEngine();
+  probeEngine().then(() => finishCheckout());
 })();

@@ -31,7 +31,7 @@ Health: `https://api.nospeaky.ai/health`
 
 ## Pro
 
-Scribe is wired (`pro_ready`) but **locked**. Public Watch has no Pro button. Server token only (`?pro=`). Stripe is off.
+Scribe is wired (`pro_ready`) but **locked**. Public Watch has no Pro button. Server token only (`?pro=`). Stripe Checkout is test-mode on Watch (Skip the queue). Live cards need live keys. Homepage still says Later.
 
 ## Site deploy
 

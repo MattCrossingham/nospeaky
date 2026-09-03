@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 CHUNK_SEC = int(os.environ.get("NOSPEAKY_STREAM_CHUNK_SEC", "8"))
 STREAM_MAX = int(os.environ.get("NOSPEAKY_STREAM_MAX", "1"))
+ROOM_KEEP_SEC = int(os.environ.get("NOSPEAKY_ROOM_KEEP_SEC", "90"))
 
 
 def room_key(url: str, source_lang: str, target_lang: str, tier: str) -> str:
@@ -33,6 +34,7 @@ class Room:
         self.done = False
         self.error: str | None = None
         self.started_at = time.time()
+        self.finished_at = 0.0
 
     def emit(self, msg: dict[str, Any]) -> None:
         with self.lock:
@@ -59,8 +61,25 @@ class Hub:
         self.lock = threading.Lock()
         self.rooms: dict[str, Room] = {}
 
+    def _sweep_locked(self) -> None:
+        now = time.time()
+        drop: list[str] = []
+        for k, r in self.rooms.items():
+            if r.running and not r.done:
+                continue
+            if r.clients:
+                continue
+            if not r.done:
+                continue
+            end = r.finished_at or r.started_at
+            if now - end >= ROOM_KEEP_SEC:
+                drop.append(k)
+        for k in drop:
+            self.rooms.pop(k, None)
+
     def stats(self) -> dict[str, Any]:
         with self.lock:
+            self._sweep_locked()
             rooms = list(self.rooms.values())
         return {
             "rooms": len(rooms),
@@ -72,6 +91,7 @@ class Hub:
     def has_room(self, url: str, source_lang: str, target_lang: str, tier: str) -> bool:
         key = room_key(url, source_lang, target_lang, tier)
         with self.lock:
+            self._sweep_locked()
             return key in self.rooms
 
     def join(self, url: str, source_lang: str, target_lang: str, tier: str, send) -> Room:
@@ -79,6 +99,7 @@ class Hub:
             raise ValueError("URL not allowed")
         key = room_key(url, source_lang, target_lang, tier)
         with self.lock:
+            self._sweep_locked()
             room = self.rooms.get(key)
             running = [r for r in self.rooms.values() if r.running and not r.done]
             if room is None:
@@ -109,6 +130,8 @@ class Hub:
         with room.lock:
             if send in room.clients:
                 room.clients.remove(send)
+        with self.lock:
+            self._sweep_locked()
 
     def _run(self, room: Room) -> None:
         tmp = Path(f"/tmp/ns-stream-{room.key}")
@@ -119,11 +142,13 @@ class Hub:
             self._pipe(room, tmp)
             room.done = True
             room.running = False
+            room.finished_at = time.time()
             room.emit({"type": "done", "cues": list(room.cues)})
         except Exception as e:
             room.error = str(e)
             room.done = True
             room.running = False
+            room.finished_at = time.time()
             room.emit({"type": "error", "error": str(e)})
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -148,6 +173,16 @@ class Hub:
             pattern,
         ]
         proc_y = subprocess.Popen(ytdlp, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        yerr: list[bytes] = []
+
+        def _drain_y() -> None:
+            try:
+                if proc_y.stderr:
+                    yerr.append(proc_y.stderr.read() or b"")
+            except Exception:
+                pass
+
+        threading.Thread(target=_drain_y, daemon=True, name="ytdlp-err").start()
         proc_f = subprocess.Popen(ff, stdin=proc_y.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         if proc_y.stdout:
             proc_y.stdout.close()
@@ -212,6 +247,9 @@ class Hub:
                 time.sleep(0.4)
             else:
                 idle = 0
-        err = (proc_f.stderr.read() if proc_f.stderr else b"")[-400:]
+        ferr = (proc_f.stderr.read() if proc_f.stderr else b"")[-400:]
+        ytxt = b"".join(yerr).decode("utf-8", "replace")[-800:]
+        if proc_y.returncode not in (0, None) and not room.cues:
+            raise RuntimeError(ytxt or "yt-dlp stream failed")
         if proc_f.returncode not in (0, None) and not room.cues:
-            raise RuntimeError(err.decode("utf-8", "replace") or "ffmpeg stream failed")
+            raise RuntimeError(ytxt or ferr.decode("utf-8", "replace") or "ffmpeg stream failed")
