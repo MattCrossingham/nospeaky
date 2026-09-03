@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from engine import billing
 from engine import queue as jobq
 from engine import ratelimit
 from engine.stream import Hub as StreamHub
@@ -190,17 +191,7 @@ def _probe_url_duration(url: str) -> float | None:
     if not shutil.which("yt-dlp"):
         return None
     r = _run(
-        [
-            "yt-dlp",
-            "--js-runtimes",
-            "deno",
-            "--impersonate",
-            "firefox",
-            "--no-playlist",
-            "--print",
-            "duration",
-            url,
-        ],
+        _ytdlp_base(url) + ["--print", "duration", url],
         timeout=45,
     )
     if r.returncode != 0:
@@ -224,7 +215,11 @@ def _embed_url(url: str | None) -> str | None:
     m = re.search(r"(?:dai\.ly/|dailymotion\.com/video/)([A-Za-z0-9]+)", u, re.I)
     if m:
         return f"https://www.dailymotion.com/embed/video/{m.group(1)}?autoplay=1"
-    m = re.search(r"(?:youtube\.com/watch\?v=|youtu\.be/)([\w-]{6,})", u, re.I)
+    m = re.search(
+        r"(?:youtube\.com/(?:watch\?(?:[^#]*&)?v=|embed/|shorts/|live/)|youtu\.be/)([\w-]{11})",
+        u,
+        re.I,
+    )
     if m:
         return f"https://www.youtube.com/embed/{m.group(1)}?autoplay=1"
     return None
@@ -269,7 +264,12 @@ def _is_safe_public_url(url: str) -> bool:
 
 def _is_youtube(url: str) -> bool:
     host = (urlparse(url).hostname or "").lower()
-    return "youtube.com" in host or host == "youtu.be" or host.endswith(".youtube.com")
+    return (
+        host == "youtu.be"
+        or host.endswith(".youtube.com")
+        or host == "youtube.com"
+        or host.endswith("youtube-nocookie.com")
+    )
 
 
 def _ytdlp_base(url: str) -> list[str]:
@@ -918,8 +918,9 @@ def _process_job(job_id: str) -> None:
 def _stamp_queue(job_id: str) -> None:
     job = _jobs.get(job_id) or {}
     tier = job.get("tier") or "free"
-    pos = jobq.position(job_id, tier)
-    n = jobq.qlen(tier)
+    lane = "pro" if (tier == "pro" or job.get("skip")) else "free"
+    pos = jobq.position(job_id, lane)
+    n = jobq.qlen(lane)
     if job:
         job["queue_pos"] = pos
         job["queue_len"] = n
@@ -931,9 +932,10 @@ def _stamp_queue(job_id: str) -> None:
 def _start_thread(job_id: str) -> None:
     job = _jobs.get(job_id) or {}
     tier = job.get("tier") or "free"
-    jobq.enqueue(job_id, tier)
+    lane = "pro" if (tier == "pro" or job.get("skip")) else "free"
+    jobq.enqueue(job_id, lane)
     _stamp_queue(job_id)
-    _kick_worker(tier)
+    _kick_worker(lane)
 
 
 def _kick_worker(tier: str = "free") -> None:
@@ -1029,6 +1031,7 @@ def health() -> dict[str, Any]:
             "stream_limit_per_hour": STREAM_LIMIT_PER_HOUR,
         },
         "langbly_ready": translate_langbly.ready(),
+        "stripe": billing.public(),
     }
 
 
@@ -1063,6 +1066,8 @@ async def create_job(
     if url and not _is_safe_public_url(url):
         raise HTTPException(400, "URL not allowed")
 
+    skip = billing.skip_ok(request.headers.get("x-nospeaky-skip"))
+
     job_id = uuid.uuid4().hex[:12]
     jdir = _job_dir(job_id)
     jdir.mkdir(parents=True, exist_ok=True)
@@ -1091,6 +1096,7 @@ async def create_job(
         "target_lang": target_lang or "en",
         "source_url": url,
         "tier": tier_n,
+        "skip": bool(skip),
         "media_path": str(media_path) if media_path else str(jdir / "media.mp4"),
         "media_name": media_name,
         "cues": [],
@@ -1106,6 +1112,34 @@ async def create_job(
     _save_meta(job)
     _start_thread(job_id)
     return JSONResponse(_public(job))
+
+
+@app.post("/v1/billing/checkout")
+def billing_checkout(request: Request, _: None = Depends(_check_key)) -> dict[str, Any]:
+    if not billing.ready():
+        raise HTTPException(503, "Payments are not on yet.")
+    origin = "https://nospeaky.ai"
+    ref = request.headers.get("origin") or request.headers.get("referer") or ""
+    if ref.startswith("https://nospeaky.ai") or ref.startswith("https://www.nospeaky.ai"):
+        origin = "https://nospeaky.ai"
+    elif ref.startswith("http://127.0.0.1") or ref.startswith("http://localhost"):
+        origin = ref.split("/watch")[0].rstrip("/") if "watch" in ref else origin
+    try:
+        url = billing.create_checkout(
+            success_url=origin + "/watch.html?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=origin + "/watch.html?checkout=cancel",
+        )
+    except Exception as e:
+        raise HTTPException(400, str(e)) from e
+    return {"url": url, "mode": billing.mode()}
+
+
+@app.get("/v1/billing/confirm")
+def billing_confirm(session_id: str = "", _: None = Depends(_check_key)) -> dict[str, Any]:
+    try:
+        return billing.confirm(session_id)
+    except Exception as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/v1/jobs/{job_id}")
