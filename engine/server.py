@@ -715,6 +715,8 @@ def _transcribe(wav: Path, source_lang: str, target_lang: str, on_partial=None) 
                 str(wav),
                 task=task,
                 language=language,
+                beam_size=1,
+                best_of=1,
                 vad_filter=True,
                 condition_on_previous_text=False,
                 compression_ratio_threshold=2.2,
