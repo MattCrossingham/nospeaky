@@ -1,47 +1,52 @@
 # nospeaky.ai
 
-Captions for videos that shipped without CC.
+Paste a video URL. Pick a language. Captions while it plays.
 
-## Stack (v0.1)
+Live: https://nospeaky.ai · https://nospeaky.ai/watch.html
+
+## Stack
 
 - Static site on **GitHub Pages** → `nospeaky.ai`
-- Local engine (this Mac): FastAPI + mlx-whisper + ffmpeg (+ yt-dlp for URLs)
-- Engine binds **127.0.0.1:8788 only** — not public yet
+- Watch talks to `https://api.nospeaky.ai` (page key is a public gate only — it cannot spend Scribe or Langbly)
+- Engine on a **DigitalOcean Sydney** droplet, Docker `nospeaky-engine-1` bound to **127.0.0.1:8788 only**
+- **nginx** terminates TLS for `api.nospeaky.ai` and proxies HTTP plus the WebSocket upgrade
+- Not the home network. Not pi-node.
 
-## Run locally (test for real)
+## Live path
 
-Terminal A — engine:
+Default Watch path is streaming captions:
 
-```bash
-cd "~/workspace/PiStudios/Web Development/nospeaky"
-./engine/run.sh
-```
+- `wss://api.nospeaky.ai/v1/stream` (chunked faster-whisper, overlay follows the playhead)
+- Whole-file `POST /v1/jobs` is fallback if the socket fails
 
-Terminal B — site (must be http:// not the live https site — browsers block https→http):
+Health: `https://api.nospeaky.ai/health`
 
-```bash
-cd "~/workspace/PiStudios/Web Development/nospeaky"
-python3 -m http.server 8765 --bind 127.0.0.1
-```
+## Free tier
 
-Open: http://127.0.0.1:8765/watch.html  
-Drop a file or paste a URL → pick languages → Start → wait for Ready → play / download `.srt`
+- yt-dlp audio-only fetch + **faster-whisper tiny** on the box
+- **Langbly** rewrites caption lines for Read-it-in (Argos if Langbly returns nothing)
+- 10-minute cap
+- 8 jobs and 8 new live clips per hour per IP (SQLite on the data volume)
+- One live stream at a time on this box (`STREAM_MAX=1`)
 
-First run downloads the Whisper model (can take a few minutes).
+## Pro
 
-## Deploy workflow (site)
+Scribe is wired (`pro_ready`) but **locked**. Public Watch has no Pro button. Server token only (`?pro=`). Stripe is off.
+
+## Site deploy
 
 1. `git pull`
 2. Tag backup before risky changes
 3. Branch → PR → merge to `main`
 4. Never force-push `main`
 
-## DNS
+Pages source is `main` `/`. DNS already on GitHub Pages. HTTPS on.
 
-Already pointed at GitHub Pages. HTTPS on.
+## Local lab (optional)
+
+Engine still runs on a Mac for experiments (`./engine/run.sh` → 127.0.0.1:8788). Serve the site over **http** (`python3 -m http.server 8765 --bind 127.0.0.1`) — browsers block https→http. That path is not production.
 
 ## Next
 
-- Put engine online behind login + limits (`api.nospeaky.ai`)
-- Better models / chunked live cues while playing
-- Stripe free tier + Pro
+- Worker-pool scaling so different videos can stream at once (this droplet is one live pipeline)
+- Stripe billing when Pro goes public
