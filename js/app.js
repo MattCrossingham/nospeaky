@@ -94,6 +94,8 @@
   let overlayRaf = 0;
   let waiting = false;
   let playingSubs = false;
+  let holdText = "";
+  let holdUntil = 0;
   let etaUntil = 0;
   let waitTick = 0;
   let nativeTrack = false;
@@ -718,6 +720,8 @@
 
   function syncOverlay() {
     if (!playingSubs || !cues.length) {
+      holdText = "";
+      holdUntil = 0;
       if (cueOverlay) cueOverlay.textContent = "";
       if (liveSub) liveSub.textContent = "";
       return;
@@ -730,17 +734,35 @@
     let active = null;
     let activeIdx = -1;
     if (t >= 0) {
-      for (let i = cues.length - 1; i >= 0; i--) {
+      for (let i = 0; i < cues.length; i++) {
         const c = cues[i];
-        if (t >= c.start && t <= (c.end + 0.4)) {
-          active = c;
-          activeIdx = i;
-          break;
+        const end = Math.max(c.end, c.start + 2.2);
+        if (t >= c.start && t <= (end + 0.4)) {
+          if (!active || c.start >= active.start) {
+            active = c;
+            activeIdx = i;
+          }
         }
       }
     }
-    cueOverlay.textContent = active ? cleanCue(active.text) : "";
-    if (liveSub) liveSub.textContent = active ? active.text : "";
+    let text = active ? cleanCue(active.text) : "";
+    if (text && text !== holdText) {
+      if (holdText && t < holdUntil) {
+        text = holdText;
+      } else {
+        holdText = text;
+        holdUntil = t + 2.2;
+      }
+    } else if (text && text === holdText) {
+      holdUntil = Math.max(holdUntil, t + 1.4);
+    } else if (!text && holdText && t < holdUntil) {
+      text = holdText;
+    } else if (!text) {
+      holdText = "";
+      holdUntil = 0;
+    }
+    cueOverlay.textContent = text;
+    if (liveSub) liveSub.textContent = text;
     if (cueList) {
       [...cueList.children].forEach((li, i) => {
         li.classList.toggle("active", i === activeIdx);
