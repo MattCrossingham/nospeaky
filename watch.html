@@ -2,112 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>NoSpeaky — Live translator</title>
-<meta name="description" content="Paste a video link. Pick a language. Captions while it plays.">
-<meta name="theme-color" content="#0a0b0f">
-<link rel="stylesheet" href="css/site.css?v=22">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0b0f'/%3E%3Cpath d='M8 12h16v2H8zm0 5h12v2H8zm0 5h9v2H8z' fill='%23F2A93B'/%3E%3C/svg%3E">
+<meta http-equiv="refresh" content="0; url=/">
+<title>nospeaky.ai — Under construction</title>
+<link rel="canonical" href="https://nospeaky.ai/">
 </head>
 <body>
-  <div class="bg-grid" aria-hidden="true"></div>
-
-  <header class="top">
-    <a class="brand" href="/">nospeaky<span class="dot">.ai</span></a>
-    <nav>
-      <a href="watch.html" class="nav-active">Watch</a>
-      <a href="/#pricing">Pricing</a>
-      <a href="tos.html">Terms</a>
-      <a href="privacy.html">Privacy</a>
-    </nav>
-  </header>
-
-  <main class="app-main">
-    <header class="app-head">
-      <h1>Watch with a translator</h1>
-    </header>
-
-    <form id="job-form" class="panel" autocomplete="off">
-      <label class="field">
-        <span class="label">Video link</span>
-        <input id="url" name="url" type="url" inputmode="url" placeholder="YouTube, dai.ly, or a direct .mp4" required>
-        <span class="hint" id="url-trust">We don’t keep your videos. YouTube, Dailymotion, or a direct file. Some YouTube clips still get blocked.</span>
-      </label>
-
-      <div class="row-2">
-        <label class="field">
-          <span class="label">Spoken language</span>
-          <select id="source-lang" name="source_lang">
-            <option value="auto" selected>Auto-detect</option>
-          </select>
-        </label>
-
-        <label class="field">
-          <span class="label">Read it in</span>
-          <select id="target-lang" name="target_lang">
-            <option value="en" selected>English</option>
-            <option value="same">Same as spoken</option>
-          </select>
-        </label>
-      </div>
-
-      <input id="file" name="file" type="file" accept="video/*,audio/*" hidden>
-      <span class="file-name" id="file-name" hidden></span>
-      <div id="drop" hidden></div>
-
-      <div class="actions">
-        <button type="submit" class="btn primary" id="start-btn">Translate</button>
-        <button type="button" class="btn ghost" id="pay-btn" hidden>Skip the queue</button>
-        <button type="button" class="btn ghost" id="pro-btn" hidden disabled>Pro</button>
-        <input type="hidden" id="tier" name="tier" value="free">
-        <p class="status-line" id="form-status" role="status">Paste a link to begin.</p>
-      </div>
-    </form>
-
-    <section class="player-section" id="player-section" hidden>
-      <div class="player-wrap" id="player-wrap">
-        <div id="embed-host" class="embed-host" hidden></div>
-        <iframe id="embed" hidden title="Video" allow="autoplay"></iframe>
-        <video id="player" controls playsinline webkit-playsinline controlslist="nofullscreen"></video>
-        <div class="cue-overlay" id="cue-overlay" aria-live="polite"></div>
-        <button type="button" class="fs-btn" id="fs-btn" aria-label="Full screen" aria-pressed="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5h2zm10 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-        </button>
-        <div class="wait-overlay" id="wait-overlay" hidden>
-          <p class="wait-label" id="wait-label">Translating</p>
-          <p class="wait-time" id="wait-time">…</p>
-          <p class="wait-hint" id="wait-hint">Subtitles start when this hits zero.</p>
-        </div>
-        <div class="fail-overlay" id="fail-overlay" hidden>
-          <p class="fail-title" id="fail-title">Didn’t work</p>
-          <p class="fail-body" id="fail-body">Try a Dailymotion or .mp4 link.</p>
-        </div>
-      </div>
-      <p class="live-sub" id="live-sub" hidden aria-live="polite"></p>
-
-      <div class="player-meta">
-        <div class="progress-block" hidden>
-          <div class="progress-label">
-            <span id="job-state">Waiting</span>
-            <span id="job-detail" class="faint"></span>
-          </div>
-          <div class="bar" aria-hidden="true"><i id="progress-bar"></i></div>
-        </div>
-        <div class="player-actions">
-          <button type="button" class="btn ghost" id="btn-srt" disabled>Download .srt</button>
-          <button type="button" class="btn ghost" id="btn-vtt" disabled>Download .vtt</button>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer class="foot">
-    <span>© <span id="y"></span> NoSpeaky</span>
-    <span><a href="tos.html">Terms</a> · <a href="dmca.html">Copyright</a> · <a href="privacy.html">Privacy</a></span>
-  </footer>
-
-  <script src="js/config.js?v=16"></script>
-  <script src="js/langs.js?v=1"></script>
-  <script src="js/app.js?v=24"></script>
+<p><a href="/">Under construction.</a></p>
 </body>
 </html>
